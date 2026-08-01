@@ -3,3 +3,6 @@ node_modules/
 *.local
 service-tokens*.json
 aegis.config.json
+
+*.bak
+aegis-audit.jsonl

@@ -148,5 +148,57 @@ async function sendRaw(){
   const res = await api(t, method, path, body);
   log(t, method, path, res);
 }
+/* ===== Aegis WS command lane (step 1: single-agent streaming) ===== */
+(function(){
+  const host = document.querySelector('.log') ? document.querySelector('.log').parentNode : document.body;
+  const bar = document.createElement('div');
+  bar.style.cssText = 'display:flex;gap:8px;margin:10px 0';
+  bar.innerHTML =
+    '<input id="prompt" placeholder="prompt to selected agent (uses the Target above)" '
+    + 'style="flex:1;min-width:240px;background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:6px;padding:7px 10px;font-family:monospace">'
+    + '<button id="chatSend" class="send">Send prompt</button>';
+  host.insertBefore(bar, document.getElementById('log'));
+  document.getElementById('chatSend').onclick = chatSend;
+  document.getElementById('prompt').addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); chatSend(); }});
+})();
+
+function wsBase(){ return (location.protocol==='https:'?'wss://':'ws://') + location.host; }
+
+function chatBubble(agent){
+  const log = document.getElementById('log');
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'margin:8px 0;padding:8px 10px;border:1px solid #222;border-radius:8px;background:#0d0d0d';
+  const head = document.createElement('div');
+  head.innerHTML = '<span class="agent" style="color:'+accentOf(agent)+';font-weight:700">&rarr; '+agent.toUpperCase()+'</span> <span class="meta" style="color:#777"></span>';
+  const body = document.createElement('div');
+  body.style.cssText = 'white-space:pre-wrap;margin-top:4px;color:#ddd;font-family:monospace';
+  wrap.appendChild(head); wrap.appendChild(body);
+  log.insertBefore(wrap, log.firstChild);
+  return { meta: head.querySelector('.meta'), body: body };
+}
+
+function chatSend(){
+  const agent = document.getElementById('target').value;
+  const p = document.getElementById('prompt').value.trim();
+  if(!agent){ alert('pick a Target agent'); return; }
+  if(!p) return;
+  document.getElementById('prompt').value = '';
+  const ui = chatBubble(agent);
+  ui.meta.textContent = 'connecting...';
+  const ws = new WebSocket(wsBase() + '/ws/agent/' + encodeURIComponent(agent));
+  ws.onopen = function(){ ui.meta.textContent = 'sent'; ws.send(JSON.stringify({ prompt: p })); };
+  ws.onmessage = function(ev){
+    var f; try { f = JSON.parse(ev.data); } catch(e) { return; }
+    if(f.type==='start') ui.meta.textContent = 'thinking...';
+    else if(f.type==='step') ui.meta.textContent = f.text || 'working...';
+    else if(f.type==='token') ui.body.textContent += (f.text||'');
+    else if(f.type==='error'){ ui.meta.textContent = 'error'; ui.body.textContent += '\n[error] '+(f.text||''); }
+    else if(f.type==='done'){ ui.meta.textContent = 'done'; try{ ws.close(); }catch(e){} }
+  };
+  ws.onerror = function(){ ui.meta.textContent = 'ws error'; };
+  ws.onclose = function(){ if(ui.meta.textContent==='sent'||ui.meta.textContent==='thinking...') ui.meta.textContent='closed'; };
+}
+
 loadFleet();
-</script></body></html>
+</script>
+</body></html>
