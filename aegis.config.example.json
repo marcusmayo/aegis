@@ -1,0 +1,18 @@
+{
+  "agents": [
+    {
+      "name": "heimdall",
+      "profile": "castor",
+      "host": "heimdall.keel-pm.com",
+      "clientId": "PASTE-aegis-heimdall.CLIENT-ID.access",
+      "clientSecret": "PASTE-aegis-heimdall-CLIENT-SECRET"
+    },
+    {
+      "name": "bosun",
+      "profile": "keel",
+      "host": "bosun.keel-pm.com",
+      "clientId": "PASTE-aegis-bosun.CLIENT-ID.access",
+      "clientSecret": "PASTE-aegis-bosun-CLIENT-SECRET"
+    }
+  ]
+}
