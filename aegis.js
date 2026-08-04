@@ -21,10 +21,25 @@ if (!fs.existsSync(CFG)) {
   console.error('Missing aegis.config.json - copy aegis.config.example.json, fill in your service tokens.');
   process.exit(1);
 }
-const CONFIG = JSON.parse(fs.readFileSync(CFG, 'utf8'));
-const AGENTS = CONFIG.agents || [];
-const byName = {};
-for (const a of AGENTS) byName[a.name] = a;
+
+// Config is re-read from disk on demand so a freshly-registered agent shows up
+// on "Refresh fleet" WITHOUT restarting Aegis. loadAgents() is the single source;
+// callers never hold a stale array. A parse error keeps the last-good agents so a
+// half-written file can't blank the fleet.
+let lastGoodAgents = [];
+function loadAgents() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(CFG, 'utf8'));
+    lastGoodAgents = Array.isArray(cfg.agents) ? cfg.agents : [];
+  } catch (e) {
+    console.error('aegis.config.json re-read failed (' + e.message + ') - keeping last-good fleet');
+  }
+  return lastGoodAgents;
+}
+function agentByName(name) {
+  return loadAgents().find(a => a && a.name === name) || null;
+}
+loadAgents(); // warm lastGoodAgents at startup (and validate the file is readable)
 
 // --- audit: one JSONL line per command; hash + length only, never raw prompt ---
 function audit(rec) {
@@ -65,11 +80,17 @@ function readBody(req) {
 const server = http.createServer(async (req, res) => {
   if (req.url === '/api/agents' && req.method === 'GET') {
     res.setHeader('Content-Type', 'application/json');
-    return res.end(JSON.stringify(AGENTS.map(a => ({ name: a.name, host: a.host, profile: a.profile }))));
+    // fresh read every call -> "Refresh fleet" reflects aegis.config.json now
+    return res.end(JSON.stringify(loadAgents().map(a => ({ name: a.name, host: a.host, profile: a.profile }))));
+  }
+  if (req.url === '/api/reload' && req.method === 'POST') {
+    const names = loadAgents().map(a => a.name);
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify({ ok: true, count: names.length, agents: names }));
   }
   const m = req.url.match(/^\/api\/call\/([^/]+)$/);
   if (m && req.method === 'POST') {
-    const agent = byName[decodeURIComponent(m[1])];
+    const agent = agentByName(decodeURIComponent(m[1]));
     if (!agent) { res.statusCode = 404; return res.end(JSON.stringify({ status: 404, body: 'unknown agent' })); }
     const { method = 'GET', path: apiPath = '/', body = null } = await readBody(req);
     const out = await callAgent(agent, method, apiPath, body);
@@ -92,7 +113,7 @@ const wss = new WebSocketServer({ noServer: true });
 server.on('upgrade', (req, socket, head) => {
   const um = req.url.match(/^\/ws\/agent\/([^/?]+)/);
   if (!um) { socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); socket.destroy(); return; }
-  const agent = byName[decodeURIComponent(um[1])];
+  const agent = agentByName(decodeURIComponent(um[1]));
   if (!agent) { socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); socket.destroy(); return; }
   wss.handleUpgrade(req, socket, head, (browserWs) => relay(browserWs, agent));
 });
@@ -136,4 +157,4 @@ function relay(browserWs, agent) {
 }
 
 server.listen(PORT, HOST, () =>
-  console.log(`Aegis on http://${HOST}:${PORT}  agents: ${AGENTS.map(a => a.name).join(', ') || '(none - fill aegis.config.json)'}`));
+  console.log(`Aegis on http://${HOST}:${PORT}  agents: ${loadAgents().map(a => a.name).join(', ') || '(none - fill aegis.config.json)'}`));
