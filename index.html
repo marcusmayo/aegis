@@ -383,6 +383,22 @@ async function decommissionGo(){
   setTimeout(loadFleet, 600); // refresh — the agent should now be gone
 }
 
+// Keep each agent's model dropdown in sync with changes made elsewhere (e.g. the agent's
+// own webchat) without a manual Refresh — and without disturbing an in-progress selection.
+async function syncModels(){
+  for(const a of (AGENTS||[])){
+    const sel = document.getElementById('mdlsel-'+a.name);
+    if(!sel || sel.disabled || sel === document.activeElement) continue;
+    try{
+      const r = await api(a.name,'GET','/model');
+      if(r.status!==200) continue;
+      const j = JSON.parse(r.body);
+      if(j.active && sel.value !== j.active && [...sel.options].some(o=>o.value===j.active)) sel.value = j.active;
+    }catch{}
+  }
+}
+setInterval(syncModels, 12000);
+
 loadFleet();
 advInit();
 </script>
