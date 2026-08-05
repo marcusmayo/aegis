@@ -55,6 +55,8 @@
   .webtog{border:none;border-radius:5px;padding:2px 12px;font-weight:700;cursor:pointer;font-size:11px;font-family:monospace}
   .webtog.on{background:#22c55e;color:#052e13}
   .webtog.off{background:#333;color:#aaa}
+  .fontbtn{background:#1a1a1a;border:1px solid #333;color:#bbb;border-radius:4px;padding:1px 8px;cursor:pointer;font-size:11px}
+  .fontbtn:hover{background:#252525}
   .dec-go{background:#ef4444;color:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:700;cursor:pointer}
   .dec-go:disabled{background:#3a1c1c;color:#7a5a5a;cursor:not-allowed}
   .agent-link{color:#6ea8ff;text-decoration:none;font-size:12px}
@@ -78,6 +80,7 @@
       <button class="send" onclick="newConversation()" style="margin-left:auto" title="Start a fresh conversation on the selected agent (shared with its webchat)">&#8635; New conversation</button>
     </div>
     <div><span class="muted">set color:</span><div class="palette" id="palette"></div></div>
+    <div style="margin-top:6px;font-size:11px;color:#888">answer text size: <button class="fontbtn" onclick="logFont(-1)" title="smaller">A&minus;</button> <button class="fontbtn" onclick="logFont(1)" title="larger">A+</button> <button class="fontbtn" onclick="logFont(0)" title="reset">reset</button></div>
     <div class="log" id="log"></div>
   </section>
 </div>
@@ -162,6 +165,11 @@ function log(agent, method, path, res){
 function highlightCard(name){
   document.querySelectorAll('.card').forEach(c => c.classList.remove('sel'));
   const c = document.getElementById('card-'+name); if(c) c.classList.add('sel');
+}
+let logFontSize = 12;
+function logFont(d){
+  logFontSize = d===0 ? 12 : Math.max(9, Math.min(24, logFontSize + d*2));
+  const el = document.getElementById('log'); if(el) el.style.fontSize = logFontSize + 'px';
 }
 function selectTarget(name){
   const sel = document.getElementById('target'); if(!sel) return;
