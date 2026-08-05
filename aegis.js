@@ -126,6 +126,19 @@ function runFleetctl(args) {
 
 function sendJson(res, obj, status = 200) { res.statusCode = status; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(obj)); }
 
+// Panel-facing cleanup for plan output: the panel has its own Execute UI, so strip the
+// CLI "To EXECUTE … --go" hint, and relativize machine-absolute paths (FLEET_IAC_ROOT
+// and the temp dir) so the panel never shows a non-portable local path.
+function panelClean(out) {
+  let s = String(out || '');
+  for (const base of [FLEET_IAC_ROOT, os.tmpdir()]) {
+    if (base) s = s.split(base + '\\').join('').split(base + '/').join('').split(base).join('');
+  }
+  const cut = s.indexOf('  To EXECUTE');
+  if (cut >= 0) s = s.slice(0, cut).replace(/\s+$/, '') + '\n';
+  return s;
+}
+
 const server = http.createServer(async (req, res) => {
   if (req.url === '/api/agents' && req.method === 'GET') {
     res.setHeader('Content-Type', 'application/json');
@@ -159,7 +172,7 @@ const server = http.createServer(async (req, res) => {
     const r = runFleetctl(['plan', file]);
     if (temp) { try { fs.unlinkSync(file); } catch { /* best effort */ } }
     audit({ action: 'provision-plan', name, code: r.code });
-    return sendJson(res, { ok: r.code === 0, code: r.code, out: r.out });
+    return sendJson(res, { ok: r.code === 0, code: r.code, out: panelClean(r.out) });
   }
   // Decommission plan (READ-ONLY): discover which surfaces an agent still occupies.
   if (req.url === '/api/decommission/plan' && req.method === 'POST') {
@@ -170,7 +183,7 @@ const server = http.createServer(async (req, res) => {
     const r = runFleetctl(['decommission', file]); // no --go => read-only discovery
     if (temp) { try { fs.unlinkSync(file); } catch { /* best effort */ } }
     audit({ action: 'decommission-plan', name, code: r.code });
-    return sendJson(res, { ok: r.code === 0, code: r.code, out: r.out });
+    return sendJson(res, { ok: r.code === 0, code: r.code, out: panelClean(r.out) });
   }
   // Decommission EXECUTE (DESTRUCTIVE): requires a typed attestation phrase, then streams
   // `fleetctl decommission <contract> --go` LIVE via async spawn — so the minutes-long
