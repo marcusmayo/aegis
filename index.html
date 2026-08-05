@@ -41,6 +41,15 @@
   #provDrawer .prov-panel input,#provDrawer .prov-panel select{background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:6px;padding:6px 9px;font-family:monospace;font-size:12px}
   #provDrawer .prov-panel input{max-width:150px}
   .mdl-sel{background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:5px;padding:3px 6px;font-family:monospace;font-size:11px;max-width:210px}
+  #advDrawer{position:fixed;right:0;top:64px;z-index:60;display:flex;flex-direction:row-reverse;align-items:flex-start}
+  #advDrawer .adv-tab{writing-mode:vertical-rl;background:#3b82f6;color:#fff;border:none;padding:18px 9px;cursor:pointer;font-weight:700;letter-spacing:2px;border-radius:6px 0 0 6px;box-shadow:-2px 2px 10px rgba(0,0,0,.45)}
+  #advDrawer .adv-panel{width:0;opacity:0;overflow:hidden;transition:width .22s ease,opacity .18s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-right:none;border-radius:8px 0 0 8px;max-height:84vh;overflow-y:auto;box-shadow:-6px 0 18px rgba(0,0,0,.4)}
+  #advDrawer.open .adv-panel{width:440px;opacity:1;padding:14px}
+  #advDrawer .adv-panel h3{margin:0 0 8px;font-size:14px}
+  #advDrawer .adv-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0}
+  #advDrawer select,#advDrawer input,#advDrawer textarea{background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:6px;padding:6px 9px;font-family:monospace;font-size:12px}
+  #advDrawer #advEndpoint{flex:1;min-width:250px}
+  #advDrawer .adv-body{width:100%;box-sizing:border-box;resize:vertical;min-height:56px}
 </style></head><body>
 <header>
   <h1>&#9678; Aegis</h1><span class="sub">fleet control plane &middot; local</span>
@@ -59,13 +68,6 @@
       <span class="muted" id="targetHost"></span>
     </div>
     <div><span class="muted">set color:</span><div class="palette" id="palette"></div></div>
-    <div class="raw">
-      <span class="muted">raw:</span>
-      <select id="method"><option>GET</option><option>POST</option></select>
-      <input class="path" id="path" placeholder="/color  or  /model  or  /pending" value="/color">
-      <input class="body" id="body" placeholder='body JSON (POST), e.g. {"value":"amber"}' style="flex:1;min-width:200px">
-      <button class="send" onclick="sendRaw()">Send</button>
-    </div>
     <div class="log" id="log"></div>
   </section>
 </div>
@@ -84,6 +86,21 @@
       <button class="send" onclick="decommissionPlan()">Preview teardown</button>
     </div>
     <pre class="planout" id="planout"><span class="muted">plan output appears here&hellip;</span></pre>
+  </div>
+</div>
+<div id="advDrawer">
+  <button class="adv-tab" onclick="toggleAdv()">&#9998;&nbsp; Advanced API</button>
+  <div class="adv-panel">
+    <h3>Advanced API console <span class="muted">(raw calls to the target)</span></h3>
+    <div class="muted" style="font-size:11px;margin-bottom:6px">target: <b id="advTarget">&mdash;</b> &middot; pick an endpoint &mdash; the body pre-fills where a POST needs one.</div>
+    <div class="adv-row"><select id="advEndpoint" onchange="advPick()"></select></div>
+    <div class="adv-row" id="advCustomRow" style="display:none">
+      <select id="advMethod"><option>GET</option><option>POST</option></select>
+      <input id="advPath" placeholder="/your/path" style="flex:1;min-width:160px">
+    </div>
+    <textarea id="advBody" class="adv-body" placeholder="JSON body (POST only) &mdash; leave empty for GET" rows="3"></textarea>
+    <div class="adv-row"><button class="send" onclick="advSend()">Send</button></div>
+    <pre class="planout" id="advOut"><span class="muted">response appears here&hellip;</span></pre>
   </div>
 </div>
 <script>
@@ -113,7 +130,7 @@ async function loadFleet(){
   AGENTS = await (await fetch('/api/agents')).json();
   // target dropdown
   $('#target').innerHTML = AGENTS.map(a=>'<option>'+a.name+'</option>').join('');
-  $('#target').onchange = ()=>{ const a=AGENTS.find(x=>x.name===$('#target').value); $('#targetHost').textContent = a? a.host : ''; };
+  $('#target').onchange = ()=>{ const a=AGENTS.find(x=>x.name===$('#target').value); $('#targetHost').textContent = a? a.host : ''; const at=$('#advTarget'); if(at) at.textContent = a? a.name : '\u2014'; };
   $('#target').onchange();
   // render + probe each agent
   $('#fleet').innerHTML = '';
@@ -176,6 +193,46 @@ async function loadModel(a){
   };
 }
 function toggleProv(){ document.getElementById('provDrawer').classList.toggle('open'); }
+
+// Advanced API console: a curated dropdown of the agent's real endpoints, each with a
+// method + path and (for POST) a pre-filled JSON body template, so you don't have to
+// know the API by heart. "Custom" falls back to manual method + path for anything else.
+const ENDPOINTS = [
+  { label:'GET  /health/liveliness  \u2014 is the agent alive?', method:'GET',    path:'/health/liveliness', body:'' },
+  { label:'GET  /color  \u2014 current accent + palette',        method:'GET',    path:'/color',             body:'' },
+  { label:'POST /color  \u2014 set accent color',                method:'POST',   path:'/color',             body:'{\n  "value": "amber"\n}' },
+  { label:'GET  /model  \u2014 current + available models',      method:'GET',    path:'/model',             body:'' },
+  { label:'POST /model/select  \u2014 switch model',             method:'POST',   path:'/model/select',      body:'{\n  "slug": "openrouter/z-ai/glm-5.2"\n}' },
+  { label:'GET  /pending  \u2014 intake queue (castor only)',    method:'GET',    path:'/pending',           body:'' },
+  { label:'Custom\u2026  \u2014 type your own method + path',    method:'CUSTOM', path:'',                   body:'' },
+];
+function advInit(){
+  const sel = $('#advEndpoint'); if(!sel || sel.children.length) return;
+  sel.innerHTML = ENDPOINTS.map((e,i)=>'<option value="'+i+'">'+e.label+'</option>').join('');
+  advPick();
+}
+function advPick(){
+  const e = ENDPOINTS[+$('#advEndpoint').value] || ENDPOINTS[0];
+  const custom = e.method === 'CUSTOM';
+  $('#advCustomRow').style.display = custom ? 'flex' : 'none';
+  $('#advBody').value = custom ? '' : e.body;
+}
+async function advSend(){
+  const t = $('#target').value;
+  if(!t){ $('#advOut').textContent = 'pick a Target agent (top of the console)'; return; }
+  const e = ENDPOINTS[+$('#advEndpoint').value] || ENDPOINTS[0];
+  let method, path;
+  if(e.method === 'CUSTOM'){ method = $('#advMethod').value; path = $('#advPath').value.trim(); if(!path){ $('#advOut').textContent = 'enter a path'; return; } }
+  else { method = e.method; path = e.path; }
+  let body = null; const bt = $('#advBody').value.trim();
+  if(method === 'POST' && bt){ try{ body = JSON.parse(bt); }catch{ $('#advOut').textContent = 'body is not valid JSON'; return; } }
+  $('#advOut').textContent = 'sending\u2026';
+  const res = await api(t, method, path, body);
+  log(t, method, path, res);
+  $('#advOut').textContent = method+' '+path+'  \u2192  HTTP '+res.status+'\n\n'+(res.body||'(empty)');
+  $('#advOut').style.borderColor = (res.status>=200 && res.status<300) ? '#1c1c1c' : '#7f1d1d';
+}
+function toggleAdv(){ document.getElementById('advDrawer').classList.toggle('open'); }
 
 function renderPalette(){
   const el=$('#palette'); if(el.children.length) return;
@@ -268,5 +325,6 @@ function decommissionPlan(){
 }
 
 loadFleet();
+advInit();
 </script>
 </body></html>
