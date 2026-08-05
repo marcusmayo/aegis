@@ -26,7 +26,7 @@
   .raw{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
   .raw input.path{flex:1;min-width:160px}
   button.send{background:#c9a227;border:0;border-radius:6px;color:#0d0d0d;font-weight:600;padding:7px 16px;cursor:pointer}
-  .log{margin-top:14px;background:#0a0a0a;border:1px solid var(--line);border-radius:6px;padding:10px;font-family:monospace;font-size:12px;max-height:320px;overflow:auto}
+  .log{margin-top:14px;background:#0a0a0a;border:1px solid var(--line);border-radius:6px;padding:10px;font-family:monospace;font-size:12px;height:340px;min-height:140px;resize:vertical;overflow:auto}
   .log .line{padding:3px 0;border-bottom:1px solid #161616;white-space:pre-wrap;word-break:break-word}
   .log .agent{font-weight:700}
   .log .st-ok{color:#22c55e}.log .st-bad{color:#ef4444}
@@ -38,6 +38,7 @@
   .tool-tab.adv{background:#3b82f6}
   .tool-tab.prov{background:#c9a227;color:#111}
   .tool-tab.dec{background:#ef4444}
+  .tool-tab.persona{background:#8b5cf6}
   .tool-tab.active{outline:2px solid #fff;outline-offset:-3px}
   #toolPanel{position:fixed;left:40px;top:64px;z-index:60;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-left:none;border-radius:0 8px 8px 0;max-height:84vh;overflow-y:auto;box-shadow:6px 0 18px rgba(0,0,0,.45)}
   #toolPanel.open{width:440px;opacity:1;padding:14px}
@@ -80,6 +81,7 @@
   <button class="tool-tab adv"  onclick="openTool('adv')">&#9998; Advanced</button>
   <button class="tool-tab prov" onclick="openTool('prov')">&#9881; Provisioning</button>
   <button class="tool-tab dec"  onclick="openTool('dec')">&#9760; Decommission</button>
+  <button class="tool-tab persona" onclick="openTool('persona')">&#9787; Persona</button>
 </div>
 <div id="toolPanel">
   <div class="tool-content" id="tc-adv">
@@ -120,6 +122,14 @@
       <input id="dcAttest" placeholder="decommission <name>" oninput="dcAttestCheck()" style="flex:1;min-width:180px">
       <button id="dcExec" class="dec-go" onclick="decommissionGo()" disabled>Execute teardown</button>
     </div>
+  </div>
+  <div class="tool-content" id="tc-persona">
+    <h3 style="color:#a78bfa">Persona <span class="muted">&mdash; <b id="personaTarget">&mdash;</b></span></h3>
+    <div class="muted" style="font-size:11px;margin-bottom:6px">Edit this agent's identity &amp; characteristics (business-like, analytical, humor&hellip;). Applies from the next message &mdash; no rebuild. Empty &amp; Save resets to the built-in default.</div>
+    <div class="tool-row"><button class="send" onclick="personaLoad()">Load current</button><button class="send" onclick="personaReset()">Reset to default</button></div>
+    <textarea id="personaText" class="adv-body" placeholder="Load the target agent's persona, then edit&hellip;" rows="10" style="min-height:200px"></textarea>
+    <div class="tool-row"><button class="send" onclick="personaSave()">Save persona</button></div>
+    <pre class="planout" id="personaOut"><span class="muted">persona status appears here&hellip;</span></pre>
   </div>
 </div>
 <script>
@@ -222,6 +232,7 @@ function openTool(name){
   panel.classList.add('open');
   document.querySelectorAll('.tool-tab').forEach(t=>t.classList.remove('active'));
   document.querySelector('.tool-tab.'+name).classList.add('active');
+  if(name==='persona') personaLoad();
 }
 
 // Advanced API console: a curated dropdown of the agent's real endpoints, each with a
@@ -233,6 +244,33 @@ async function newConversation(){
   if(!confirm('Start a NEW conversation on "' + t + '"?\nIt forgets the current chat — this session is shared with the agent\'s webchat.')) return;
   const res = await api(t, 'POST', '/session/reset', {});
   log(t, 'POST', '/session/reset', res);
+}
+
+function personaTargetName(){ return $('#target').value; }
+async function personaLoad(){
+  const t = personaTargetName();
+  const out = $('#personaOut'); $('#personaTarget').textContent = t || '\u2014';
+  if(!t){ out.textContent = 'pick a Target agent (in the console above)'; return; }
+  const r = await api(t,'GET','/persona');
+  if(r.status!==200){ out.textContent = 'could not load persona (HTTP '+r.status+')'; return; }
+  let j; try{ j = JSON.parse(r.body); }catch{ out.textContent = 'unexpected response'; return; }
+  $('#personaText').value = j.persona || '';
+  out.textContent = j.custom ? 'Custom persona (overrides the built-in default).' : 'Using the built-in default persona.';
+}
+async function personaSave(){
+  const t = personaTargetName();
+  if(!t){ $('#personaOut').textContent = 'pick a Target agent'; return; }
+  const res = await api(t,'POST','/persona',{persona:$('#personaText').value});
+  log(t,'POST','/persona',res);
+  try{ const j = JSON.parse(res.body); $('#personaOut').textContent = j.message || ('HTTP '+res.status); if(j.persona!==undefined) $('#personaText').value = j.persona; }catch{ $('#personaOut').textContent = 'HTTP '+res.status; }
+}
+async function personaReset(){
+  const t = personaTargetName();
+  if(!t){ $('#personaOut').textContent = 'pick a Target agent'; return; }
+  if(!confirm('Reset "'+t+'" to its built-in default persona?')) return;
+  const res = await api(t,'POST','/persona',{persona:''});
+  log(t,'POST','/persona (reset)',res);
+  personaLoad();
 }
 
 const ENDPOINTS = [
