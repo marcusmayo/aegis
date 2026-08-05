@@ -70,6 +70,7 @@
       <span class="muted">target:</span>
       <select id="target"></select>
       <span class="muted" id="targetHost"></span>
+      <button class="send" onclick="newConversation()" style="margin-left:auto" title="Start a fresh conversation on the selected agent (shared with its webchat)">&#8635; New conversation</button>
     </div>
     <div><span class="muted">set color:</span><div class="palette" id="palette"></div></div>
     <div class="log" id="log"></div>
@@ -226,6 +227,14 @@ function openTool(name){
 // Advanced API console: a curated dropdown of the agent's real endpoints, each with a
 // method + path and (for POST) a pre-filled JSON body template, so you don't have to
 // know the API by heart. "Custom" falls back to manual method + path for anything else.
+async function newConversation(){
+  const t = $('#target').value;
+  if(!t){ $('#planout') && ($('#planout').textContent='pick a Target agent first'); alert('Pick a Target agent first.'); return; }
+  if(!confirm('Start a NEW conversation on "' + t + '"?\nIt forgets the current chat — this session is shared with the agent\'s webchat.')) return;
+  const res = await api(t, 'POST', '/session/reset', {});
+  log(t, 'POST', '/session/reset', res);
+}
+
 const ENDPOINTS = [
   { label:'GET  /health/liveliness  \u2014 is the agent alive?', method:'GET',    path:'/health/liveliness', body:'' },
   { label:'GET  /color  \u2014 current accent + palette',        method:'GET',    path:'/color',             body:'' },
