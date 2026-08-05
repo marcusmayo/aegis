@@ -50,6 +50,10 @@
   #toolPanel #advEndpoint{flex:1;min-width:250px;max-width:none}
   #toolPanel .adv-body{width:100%;max-width:none;box-sizing:border-box;resize:vertical;min-height:56px}
   .mdl-sel{background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:5px;padding:3px 6px;font-family:monospace;font-size:11px;max-width:210px}
+  .dec-go{background:#ef4444;color:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:700;cursor:pointer}
+  .dec-go:disabled{background:#3a1c1c;color:#7a5a5a;cursor:not-allowed}
+  .agent-link{color:#6ea8ff;text-decoration:none;font-size:12px}
+  .agent-link:hover{text-decoration:underline}
 </style></head><body>
 <header>
   <h1>&#9678; Aegis</h1><span class="sub">fleet control plane &middot; local</span>
@@ -106,6 +110,11 @@
       <button class="send" onclick="decommissionPlan()">Preview teardown</button>
     </div>
     <pre class="planout" id="decOut"><span class="muted">teardown plan appears here&hellip;</span></pre>
+    <div class="muted" style="font-size:11px;margin:8px 0 4px">To EXECUTE (destructive): type <b style="color:#ef4444">decommission &lt;name&gt;</b> below, then Execute. Aegis runs the teardown &mdash; no CLI.</div>
+    <div class="tool-row">
+      <input id="dcAttest" placeholder="decommission <name>" oninput="dcAttestCheck()" style="flex:1;min-width:180px">
+      <button id="dcExec" class="dec-go" onclick="decommissionGo()" disabled>Execute teardown</button>
+    </div>
   </div>
 </div>
 <script>
@@ -146,7 +155,8 @@ async function loadFleet(){
       + '<span class="badge">'+a.profile+'</span></div>'
       + '<div class="row" id="rc-'+a.name+'">probing&hellip;</div>'
       + '<div class="row" id="rx-'+a.name+'"></div>'
-      + '<div class="row" id="mdl-'+a.name+'"></div>';
+      + '<div class="row" id="mdl-'+a.name+'"></div>'
+      + '<div class="row"><a class="agent-link" href="https://'+a.host+'" target="_blank" rel="noopener">&#8599; open '+a.host+' (agent login)</a></div>';
     $('#fleet').appendChild(card);
     probe(a);
   }
@@ -337,6 +347,27 @@ function decommissionPlan(){
   const name = $('#dcName').value.trim();
   if(!name){ $('#decOut').textContent = 'enter an agent name'; return; }
   planPost('/api/decommission/plan', { name }, 'decOut');
+}
+function dcAttestCheck(){
+  const name = $('#dcName').value.trim();
+  const ok = name && $('#dcAttest').value.trim() === ('decommission ' + name);
+  $('#dcExec').disabled = !ok;
+}
+async function decommissionGo(){
+  const name = $('#dcName').value.trim();
+  const attest = $('#dcAttest').value.trim();
+  if(attest !== ('decommission ' + name)){ $('#decOut').textContent = 'type exactly:  decommission ' + name; return; }
+  const btn = $('#dcExec'); btn.disabled = true;
+  const out = $('#decOut'); out.textContent = 'executing teardown\u2026 (this can take a few minutes)\n\n';
+  try{
+    const r = await fetch('/api/decommission/go', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name, attest }) });
+    const ct = r.headers.get('content-type') || '';
+    if(!r.ok && ct.includes('json')){ const j = await r.json(); out.textContent = 'blocked: ' + (j.error || r.status); btn.disabled = false; return; }
+    const reader = r.body.getReader(); const dec = new TextDecoder(); out.textContent = '';
+    while(true){ const { done, value } = await reader.read(); if(done) break; out.textContent += dec.decode(value, { stream:true }); out.scrollTop = out.scrollHeight; }
+  }catch(e){ out.textContent += '\nrequest failed: ' + e.message; }
+  $('#dcAttest').value = ''; btn.disabled = true;
+  setTimeout(loadFleet, 600); // refresh — the agent should now be gone
 }
 
 loadFleet();

@@ -84,7 +84,7 @@ function readBody(req) {
 // spawned fleetctl inherits them, so there's no per-shell env juggling. FLEET_IAC_ROOT
 // points at the agent-fleet-iac checkout.
 const os = require('os');
-const { spawnSync } = require('child_process');
+const { spawnSync, spawn } = require('child_process');
 const FLEET_IAC_ROOT = process.env.FLEET_IAC_ROOT || '';
 const NAME_RE = /^[a-z][a-z0-9-]{1,23}$/;
 
@@ -171,6 +171,38 @@ const server = http.createServer(async (req, res) => {
     if (temp) { try { fs.unlinkSync(file); } catch { /* best effort */ } }
     audit({ action: 'decommission-plan', name, code: r.code });
     return sendJson(res, { ok: r.code === 0, code: r.code, out: r.out });
+  }
+  // Decommission EXECUTE (DESTRUCTIVE): requires a typed attestation phrase, then streams
+  // `fleetctl decommission <contract> --go` LIVE via async spawn — so the minutes-long
+  // blocking RG delete never freezes Aegis. The HTTP response body is the live output.
+  if (req.url === '/api/decommission/go' && req.method === 'POST') {
+    const b = await readBody(req);
+    const name = String(b.name || '').trim();
+    const attest = String(b.attest || '').trim();
+    if (!NAME_RE.test(name)) return sendJson(res, { ok: false, error: 'invalid agent name' }, 400);
+    const required = 'decommission ' + name;
+    if (attest !== required) return sendJson(res, { ok: false, error: 'attestation does not match — type exactly:  ' + required }, 403);
+    const fp = fleetctlPath();
+    if (!FLEET_IAC_ROOT || !fs.existsSync(fp)) return sendJson(res, { ok: false, error: 'FLEET_IAC_ROOT not set / fleetctl not found' }, 500);
+    const { file, temp } = contractFor(name);
+    audit({ action: 'decommission-go', name, phase: 'start' });
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache');
+    const child = spawn('node', [fp, 'decommission', file, '--go'], {
+      cwd: FLEET_IAC_ROOT,
+      env: { ...process.env, AEGIS_CONFIG: CFG, NO_COLOR: '1' },
+    });
+    child.stdout.on('data', (d) => res.write(d));
+    child.stderr.on('data', (d) => res.write(d));
+    child.on('close', (code) => {
+      if (temp) { try { fs.unlinkSync(file); } catch { /* best effort */ } }
+      audit({ action: 'decommission-go', name, phase: 'done', code });
+      res.write('\n[fleetctl exit ' + code + ']\n');
+      res.end();
+    });
+    child.on('error', (e) => { res.write('\n[spawn error] ' + e.message + '\n'); res.end(); });
+    return;
   }
   res.statusCode = 404; res.end('not found');
 });
