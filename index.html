@@ -32,24 +32,24 @@
   .log .st-ok{color:#22c55e}.log .st-bad{color:#ef4444}
   .muted{color:var(--dim)}
   .planout{background:#0c0c0c;border:1px solid #1c1c1c;border-radius:6px;padding:10px;margin-top:8px;white-space:pre-wrap;word-break:break-word;max-height:340px;overflow:auto;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#cfcfcf}
-  #provDrawer{position:fixed;left:0;top:64px;z-index:60;display:flex;align-items:flex-start}
-  #provDrawer .prov-tab{writing-mode:vertical-rl;background:#c9a227;color:#111;border:none;padding:18px 9px;cursor:pointer;font-weight:700;letter-spacing:2px;border-radius:0 6px 6px 0;box-shadow:2px 2px 10px rgba(0,0,0,.45)}
-  #provDrawer .prov-panel{width:0;opacity:0;overflow:hidden;transition:width .22s ease,opacity .18s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-left:none;border-radius:0 8px 8px 0;max-height:84vh;overflow-y:auto;box-shadow:6px 0 18px rgba(0,0,0,.4)}
-  #provDrawer.open .prov-panel{width:410px;opacity:1;padding:14px}
-  #provDrawer .prov-panel h3{margin:0 0 8px;font-size:14px}
-  #provDrawer .prov-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:9px 0}
-  #provDrawer .prov-panel input,#provDrawer .prov-panel select{background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:6px;padding:6px 9px;font-family:monospace;font-size:12px}
-  #provDrawer .prov-panel input{max-width:150px}
+  /* Left tool rail: 3 stacked tabs (Advanced / Provisioning / Decommission) sharing one panel */
+  #toolRail{position:fixed;left:0;top:64px;z-index:61;display:flex;flex-direction:column;gap:6px}
+  .tool-tab{writing-mode:vertical-rl;border:none;cursor:pointer;padding:15px 9px;font-weight:700;letter-spacing:2px;border-radius:0 6px 6px 0;color:#fff;box-shadow:2px 2px 10px rgba(0,0,0,.4)}
+  .tool-tab.adv{background:#3b82f6}
+  .tool-tab.prov{background:#c9a227;color:#111}
+  .tool-tab.dec{background:#ef4444}
+  .tool-tab.active{outline:2px solid #fff;outline-offset:-3px}
+  #toolPanel{position:fixed;left:40px;top:64px;z-index:60;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-left:none;border-radius:0 8px 8px 0;max-height:84vh;overflow-y:auto;box-shadow:6px 0 18px rgba(0,0,0,.45)}
+  #toolPanel.open{width:440px;opacity:1;padding:14px}
+  #toolPanel h3{margin:0 0 8px;font-size:14px}
+  .tool-content{display:none}
+  .tool-content.show{display:block}
+  .tool-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0}
+  #toolPanel select,#toolPanel input,#toolPanel textarea{background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:6px;padding:6px 9px;font-family:monospace;font-size:12px}
+  #toolPanel input{max-width:150px}
+  #toolPanel #advEndpoint{flex:1;min-width:250px;max-width:none}
+  #toolPanel .adv-body{width:100%;max-width:none;box-sizing:border-box;resize:vertical;min-height:56px}
   .mdl-sel{background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:5px;padding:3px 6px;font-family:monospace;font-size:11px;max-width:210px}
-  #advDrawer{position:fixed;right:0;top:64px;z-index:60;display:flex;flex-direction:row-reverse;align-items:flex-start}
-  #advDrawer .adv-tab{writing-mode:vertical-rl;background:#3b82f6;color:#fff;border:none;padding:18px 9px;cursor:pointer;font-weight:700;letter-spacing:2px;border-radius:6px 0 0 6px;box-shadow:-2px 2px 10px rgba(0,0,0,.45)}
-  #advDrawer .adv-panel{width:0;opacity:0;overflow:hidden;transition:width .22s ease,opacity .18s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-right:none;border-radius:8px 0 0 8px;max-height:84vh;overflow-y:auto;box-shadow:-6px 0 18px rgba(0,0,0,.4)}
-  #advDrawer.open .adv-panel{width:440px;opacity:1;padding:14px}
-  #advDrawer .adv-panel h3{margin:0 0 8px;font-size:14px}
-  #advDrawer .adv-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0}
-  #advDrawer select,#advDrawer input,#advDrawer textarea{background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:6px;padding:6px 9px;font-family:monospace;font-size:12px}
-  #advDrawer #advEndpoint{flex:1;min-width:250px}
-  #advDrawer .adv-body{width:100%;box-sizing:border-box;resize:vertical;min-height:56px}
 </style></head><body>
 <header>
   <h1>&#9678; Aegis</h1><span class="sub">fleet control plane &middot; local</span>
@@ -71,36 +71,41 @@
     <div class="log" id="log"></div>
   </section>
 </div>
-<div id="provDrawer">
-  <button class="prov-tab" onclick="toggleProv()">&#9881;&nbsp; Provisioning</button>
-  <div class="prov-panel">
-    <h3>Provisioning &middot; preview <span class="muted">(read-only)</span></h3>
-    <div class="prov-row"><span class="muted">new&nbsp;agent</span>
-      <input id="pvName" placeholder="name (a-z0-9-)">
-      <select id="pvProfile"><option>keel</option><option>castor</option></select>
-      <input id="pvDomain" placeholder="domain" value="keel-pm.com">
-      <button class="send" onclick="provisionPlan()">Preview provision</button>
-    </div>
-    <div class="prov-row"><span class="muted">decommission</span>
-      <input id="dcName" placeholder="existing agent name">
-      <button class="send" onclick="decommissionPlan()">Preview teardown</button>
-    </div>
-    <pre class="planout" id="planout"><span class="muted">plan output appears here&hellip;</span></pre>
-  </div>
+<div id="toolRail">
+  <button class="tool-tab adv"  onclick="openTool('adv')">&#9998; Advanced</button>
+  <button class="tool-tab prov" onclick="openTool('prov')">&#9881; Provisioning</button>
+  <button class="tool-tab dec"  onclick="openTool('dec')">&#9760; Decommission</button>
 </div>
-<div id="advDrawer">
-  <button class="adv-tab" onclick="toggleAdv()">&#9998;&nbsp; Advanced API</button>
-  <div class="adv-panel">
+<div id="toolPanel">
+  <div class="tool-content" id="tc-adv">
     <h3>Advanced API console <span class="muted">(raw calls to the target)</span></h3>
     <div class="muted" style="font-size:11px;margin-bottom:6px">target: <b id="advTarget">&mdash;</b> &middot; pick an endpoint &mdash; the body pre-fills where a POST needs one.</div>
-    <div class="adv-row"><select id="advEndpoint" onchange="advPick()"></select></div>
-    <div class="adv-row" id="advCustomRow" style="display:none">
+    <div class="tool-row"><select id="advEndpoint" onchange="advPick()"></select></div>
+    <div class="tool-row" id="advCustomRow" style="display:none">
       <select id="advMethod"><option>GET</option><option>POST</option></select>
       <input id="advPath" placeholder="/your/path" style="flex:1;min-width:160px">
     </div>
     <textarea id="advBody" class="adv-body" placeholder="JSON body (POST only) &mdash; leave empty for GET" rows="3"></textarea>
-    <div class="adv-row"><button class="send" onclick="advSend()">Send</button></div>
+    <div class="tool-row"><button class="send" onclick="advSend()">Send</button></div>
     <pre class="planout" id="advOut"><span class="muted">response appears here&hellip;</span></pre>
+  </div>
+  <div class="tool-content" id="tc-prov">
+    <h3>Provisioning &middot; preview <span class="muted">(read-only)</span></h3>
+    <div class="tool-row"><span class="muted">new&nbsp;agent</span>
+      <input id="pvName" placeholder="name (a-z0-9-)">
+      <select id="pvProfile"><option>keel</option><option>castor</option></select>
+      <input id="pvDomain" placeholder="domain" value="keel-pm.com">
+    </div>
+    <div class="tool-row"><button class="send" onclick="provisionPlan()">Preview provision</button></div>
+    <pre class="planout" id="provOut"><span class="muted">plan output appears here&hellip;</span></pre>
+  </div>
+  <div class="tool-content" id="tc-dec">
+    <h3 style="color:#ef4444">Decommission &middot; preview <span class="muted">(read-only)</span></h3>
+    <div class="tool-row"><span class="muted">agent</span>
+      <input id="dcName" placeholder="existing agent name">
+      <button class="send" onclick="decommissionPlan()">Preview teardown</button>
+    </div>
+    <pre class="planout" id="decOut"><span class="muted">teardown plan appears here&hellip;</span></pre>
   </div>
 </div>
 <script>
@@ -192,7 +197,17 @@ async function loadModel(a){
     sel.disabled = false;
   };
 }
-function toggleProv(){ document.getElementById('provDrawer').classList.toggle('open'); }
+let activeTool = null;
+function openTool(name){
+  const panel = document.getElementById('toolPanel');
+  if(activeTool === name){ panel.classList.remove('open'); activeTool = null; document.querySelectorAll('.tool-tab').forEach(t=>t.classList.remove('active')); return; }
+  activeTool = name;
+  document.querySelectorAll('.tool-content').forEach(c=>c.classList.remove('show'));
+  document.getElementById('tc-'+name).classList.add('show');
+  panel.classList.add('open');
+  document.querySelectorAll('.tool-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelector('.tool-tab.'+name).classList.add('active');
+}
 
 // Advanced API console: a curated dropdown of the agent's real endpoints, each with a
 // method + path and (for POST) a pre-filled JSON body template, so you don't have to
@@ -232,7 +247,7 @@ async function advSend(){
   $('#advOut').textContent = method+' '+path+'  \u2192  HTTP '+res.status+'\n\n'+(res.body||'(empty)');
   $('#advOut').style.borderColor = (res.status>=200 && res.status<300) ? '#1c1c1c' : '#7f1d1d';
 }
-function toggleAdv(){ document.getElementById('advDrawer').classList.toggle('open'); }
+function toggleAdv(){ /* removed: replaced by openTool */ }
 
 function renderPalette(){
   const el=$('#palette'); if(el.children.length) return;
@@ -303,8 +318,8 @@ function chatSend(){
   ws.onclose = function(){ if(ui.meta.textContent==='sent'||ui.meta.textContent==='thinking...') ui.meta.textContent='closed'; };
 }
 
-async function planPost(url, body){
-  const out = $('#planout');
+async function planPost(url, body, outId){
+  const out = document.getElementById(outId);
   out.textContent = 'running\u2026';
   try{
     const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
@@ -315,13 +330,13 @@ async function planPost(url, body){
 }
 function provisionPlan(){
   const name = $('#pvName').value.trim();
-  if(!name){ $('#planout').textContent = 'enter an agent name'; return; }
-  planPost('/api/provision/plan', { name, profile: $('#pvProfile').value, domain: $('#pvDomain').value.trim() });
+  if(!name){ $('#provOut').textContent = 'enter an agent name'; return; }
+  planPost('/api/provision/plan', { name, profile: $('#pvProfile').value, domain: $('#pvDomain').value.trim() }, 'provOut');
 }
 function decommissionPlan(){
   const name = $('#dcName').value.trim();
-  if(!name){ $('#planout').textContent = 'enter an agent name'; return; }
-  planPost('/api/decommission/plan', { name });
+  if(!name){ $('#decOut').textContent = 'enter an agent name'; return; }
+  planPost('/api/decommission/plan', { name }, 'decOut');
 }
 
 loadFleet();
