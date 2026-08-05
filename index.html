@@ -31,6 +31,7 @@
   .log .agent{font-weight:700}
   .log .st-ok{color:#22c55e}.log .st-bad{color:#ef4444}
   .muted{color:var(--dim)}
+  .planout{background:#0c0c0c;border:1px solid #1c1c1c;border-radius:6px;padding:10px;margin-top:8px;white-space:pre-wrap;word-break:break-word;max-height:340px;overflow:auto;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#cfcfcf}
 </style></head><body>
 <header>
   <h1>&#9678; Aegis</h1><span class="sub">fleet control plane &middot; local</span>
@@ -57,6 +58,22 @@
       <button class="send" onclick="sendRaw()">Send</button>
     </div>
     <div class="log" id="log"></div>
+  </section>
+  <section class="provision">
+    <h2>Provisioning &middot; preview <span class="muted">(read-only &mdash; no changes made)</span></h2>
+    <div class="raw">
+      <span class="muted">new agent:</span>
+      <input class="path" id="pvName" placeholder="name (a-z0-9-)" style="max-width:170px">
+      <select id="pvProfile"><option>keel</option><option>castor</option></select>
+      <input class="path" id="pvDomain" placeholder="domain" value="keel-pm.com" style="max-width:150px">
+      <button class="send" onclick="provisionPlan()">Preview provision</button>
+    </div>
+    <div class="raw">
+      <span class="muted">decommission:</span>
+      <input class="path" id="dcName" placeholder="existing agent name" style="max-width:170px">
+      <button class="send" onclick="decommissionPlan()">Preview teardown</button>
+    </div>
+    <pre class="planout" id="planout"><span class="muted">plan output appears here&hellip;</span></pre>
   </section>
 </div>
 <script>
@@ -197,6 +214,27 @@ function chatSend(){
   };
   ws.onerror = function(){ ui.meta.textContent = 'ws error'; };
   ws.onclose = function(){ if(ui.meta.textContent==='sent'||ui.meta.textContent==='thinking...') ui.meta.textContent='closed'; };
+}
+
+async function planPost(url, body){
+  const out = $('#planout');
+  out.textContent = 'running\u2026';
+  try{
+    const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const j = await r.json();
+    out.textContent = j.out || '(no output)';
+    out.style.borderColor = j.ok ? '#1c1c1c' : '#7f1d1d';
+  }catch(e){ out.textContent = 'request failed: ' + e.message; out.style.borderColor = '#7f1d1d'; }
+}
+function provisionPlan(){
+  const name = $('#pvName').value.trim();
+  if(!name){ $('#planout').textContent = 'enter an agent name'; return; }
+  planPost('/api/provision/plan', { name, profile: $('#pvProfile').value, domain: $('#pvDomain').value.trim() });
+}
+function decommissionPlan(){
+  const name = $('#dcName').value.trim();
+  if(!name){ $('#planout').textContent = 'enter an agent name'; return; }
+  planPost('/api/decommission/plan', { name });
 }
 
 loadFleet();

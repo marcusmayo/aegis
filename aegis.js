@@ -77,6 +77,55 @@ function readBody(req) {
   });
 }
 
+// --- Provisioning bridge: Aegis spawns fleetctl (agent-fleet-iac) --------------
+// Aegis stays a thin console; fleetctl is the single source of truth for provision/
+// decommission (caps + budget gates, fire-and-forget, teardown). The Aegis host holds
+// CF_ACCOUNT_ID / CF_API_TOKEN / DEPLOYER_OBJECT_ID once (set when starting aegis.js);
+// spawned fleetctl inherits them, so there's no per-shell env juggling. FLEET_IAC_ROOT
+// points at the agent-fleet-iac checkout.
+const os = require('os');
+const { spawnSync } = require('child_process');
+const FLEET_IAC_ROOT = process.env.FLEET_IAC_ROOT || '';
+const NAME_RE = /^[a-z][a-z0-9-]{1,23}$/;
+
+function fleetctlPath() { return path.join(FLEET_IAC_ROOT, 'provision', 'bin', 'fleetctl.js'); }
+
+// Resolve a contract file for <name>. Prefer the persisted agents/<name>.agent.jsonc
+// (so --go deletes the real local config); otherwise synthesize a temp contract from
+// the request / the aegis.config entry (host -> domain). Temp files are caller-deleted.
+function contractFor(name, opts = {}) {
+  const persisted = FLEET_IAC_ROOT ? path.join(FLEET_IAC_ROOT, 'agents', `${name}.agent.jsonc`) : '';
+  if (!opts.forceTemp && persisted && fs.existsSync(persisted)) return { file: persisted, temp: false };
+  let { profile, domain } = opts;
+  if (!profile || !domain) {
+    const a = agentByName(name);
+    if (a) { profile = profile || a.profile; if (!domain && a.host) domain = a.host.slice(a.host.indexOf('.') + 1); }
+  }
+  profile = (profile === 'castor') ? 'castor' : 'keel';
+  domain = domain || 'keel-pm.com';
+  const tmp = path.join(os.tmpdir(), `aegis-${name}-${Date.now()}.agent.jsonc`);
+  fs.writeFileSync(tmp, JSON.stringify({ contract: 1, name, profile, domain }, null, 2) + '\n');
+  return { file: tmp, temp: true };
+}
+
+// Run fleetctl with the host env (CF_* etc.) inherited; AEGIS_CONFIG pinned to our config.
+// fleetctl emits plain text when piped (util paint checks isTTY), so no ANSI to strip.
+function runFleetctl(args) {
+  if (!FLEET_IAC_ROOT) return { code: 2, out: 'FLEET_IAC_ROOT not set — start aegis.js with FLEET_IAC_ROOT=<path to agent-fleet-iac>.' };
+  const fp = fleetctlPath();
+  if (!fs.existsSync(fp)) return { code: 2, out: `fleetctl not found at ${fp} — check FLEET_IAC_ROOT.` };
+  const r = spawnSync('node', [fp, ...args], {
+    cwd: FLEET_IAC_ROOT,
+    env: { ...process.env, AEGIS_CONFIG: CFG, NO_COLOR: '1' },
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  const out = (r.stdout || '') + (r.stderr ? (r.stdout ? '\n' : '') + r.stderr : '');
+  return { code: r.status == null ? 1 : r.status, out };
+}
+
+function sendJson(res, obj, status = 200) { res.statusCode = status; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(obj)); }
+
 const server = http.createServer(async (req, res) => {
   if (req.url === '/api/agents' && req.method === 'GET') {
     res.setHeader('Content-Type', 'application/json');
@@ -100,6 +149,28 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/' || req.url === '/index.html') {
     res.setHeader('Content-Type', 'text/html');
     return res.end(fs.readFileSync(path.join(__dirname, 'index.html')));
+  }
+  // Provisioning plan (READ-ONLY): preview `up` + the caps/budget gate for a proposed agent.
+  if (req.url === '/api/provision/plan' && req.method === 'POST') {
+    const b = await readBody(req);
+    const name = String(b.name || '').trim();
+    if (!NAME_RE.test(name)) return sendJson(res, { ok: false, out: 'invalid agent name — must match ^[a-z][a-z0-9-]{1,23}$' }, 400);
+    const { file, temp } = contractFor(name, { forceTemp: true, profile: b.profile, domain: b.domain });
+    const r = runFleetctl(['plan', file]);
+    if (temp) { try { fs.unlinkSync(file); } catch { /* best effort */ } }
+    audit({ action: 'provision-plan', name, code: r.code });
+    return sendJson(res, { ok: r.code === 0, code: r.code, out: r.out });
+  }
+  // Decommission plan (READ-ONLY): discover which surfaces an agent still occupies.
+  if (req.url === '/api/decommission/plan' && req.method === 'POST') {
+    const b = await readBody(req);
+    const name = String(b.name || '').trim();
+    if (!NAME_RE.test(name)) return sendJson(res, { ok: false, out: 'invalid agent name — must match ^[a-z][a-z0-9-]{1,23}$' }, 400);
+    const { file, temp } = contractFor(name, { profile: b.profile, domain: b.domain });
+    const r = runFleetctl(['decommission', file]); // no --go => read-only discovery
+    if (temp) { try { fs.unlinkSync(file); } catch { /* best effort */ } }
+    audit({ action: 'decommission-plan', name, code: r.code });
+    return sendJson(res, { ok: r.code === 0, code: r.code, out: r.out });
   }
   res.statusCode = 404; res.end('not found');
 });
