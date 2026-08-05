@@ -52,6 +52,9 @@
   #toolPanel #advEndpoint{flex:1;min-width:250px;max-width:none}
   #toolPanel .adv-body{width:100%;max-width:none;box-sizing:border-box;resize:vertical;min-height:56px}
   .mdl-sel{background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:5px;padding:3px 6px;font-family:monospace;font-size:11px;max-width:210px}
+  .webtog{border:none;border-radius:5px;padding:2px 12px;font-weight:700;cursor:pointer;font-size:11px;font-family:monospace}
+  .webtog.on{background:#22c55e;color:#052e13}
+  .webtog.off{background:#333;color:#aaa}
   .dec-go{background:#ef4444;color:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:700;cursor:pointer}
   .dec-go:disabled{background:#3a1c1c;color:#7a5a5a;cursor:not-allowed}
   .agent-link{color:#6ea8ff;text-decoration:none;font-size:12px}
@@ -169,7 +172,7 @@ async function loadFleet(){
   AGENTS = await (await fetch('/api/agents')).json();
   // target dropdown
   $('#target').innerHTML = AGENTS.map(a=>'<option>'+a.name+'</option>').join('');
-  $('#target').onchange = ()=>{ const a=AGENTS.find(x=>x.name===$('#target').value); $('#targetHost').textContent = a? a.host : ''; const at=$('#advTarget'); if(at) at.textContent = a? a.name : '\u2014'; highlightCard($('#target').value); };
+  $('#target').onchange = ()=>{ const a=AGENTS.find(x=>x.name===$('#target').value); $('#targetHost').textContent = a? a.host : ''; const at=$('#advTarget'); if(at) at.textContent = a? a.name : '\u2014'; highlightCard($('#target').value); if(activeTool==='persona') personaLoad(); };
   $('#target').onchange();
   // render + probe each agent
   $('#fleet').innerHTML = '';
@@ -181,6 +184,7 @@ async function loadFleet(){
       + '<div class="row" id="rc-'+a.name+'">probing&hellip;</div>'
       + '<div class="row" id="rx-'+a.name+'"></div>'
       + '<div class="row" id="mdl-'+a.name+'"></div>'
+      + '<div class="row" id="web-'+a.name+'"></div>'
       + '<div class="row"><a class="agent-link" href="https://'+a.host+'" target="_blank" rel="noopener">&#8599; open '+a.host+' (agent login)</a></div>';
     $('#fleet').appendChild(card);
     probe(a);
@@ -205,7 +209,7 @@ async function probe(a){
   } else {
     rc.innerHTML = '<span class="st-bad">unreachable / auth failed (HTTP '+color.status+')</span> '+(color.body||'').slice(0,80);
   }
-  if(ok) loadModel(a);
+  if(ok){ loadModel(a); loadWeb(a); }
   // castor extras: model + pending count
   if(a.profile==='castor' && ok){
     const rx=$('#rx-'+a.name);
@@ -215,6 +219,24 @@ async function probe(a){
     if(model.status===200) parts.push('model: ok');
     rx.textContent = parts.join('  \u00b7  ');
   }
+}
+
+// Per-agent web-research toggle (default OFF = structurally denied). GET/POST /web-access.
+async function loadWeb(a){
+  const el = $('#web-'+a.name); if(!el) return;
+  const r = await api(a.name,'GET','/web-access');
+  if(r.status!==200){ el.innerHTML = '<span class="muted">web: n/a</span>'; return; }
+  let j; try{ j = JSON.parse(r.body); }catch{ el.innerHTML = '<span class="muted">web: ?</span>'; return; }
+  renderWeb(a.name, !!j.enabled);
+}
+function renderWeb(name, enabled){
+  const el = $('#web-'+name); if(!el) return;
+  el.innerHTML = '<span class="muted">web research:</span> <button class="webtog '+(enabled?'on':'off')+'" onclick="toggleWeb(\''+name+'\','+(!enabled)+')">'+(enabled?'ON':'OFF')+'</button>';
+}
+async function toggleWeb(name, enable){
+  const res = await api(name,'POST','/web-access',{enabled:enable});
+  log(name,'POST','/web-access {enabled:'+enable+'}',res);
+  try{ const j = JSON.parse(res.body); renderWeb(name, !!j.enabled); }catch{ loadWeb({name:name}); }
 }
 
 // Per-agent model switch: GET /model -> {options:[{slug,label}], active}; POST /model/select {slug}.
