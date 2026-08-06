@@ -61,7 +61,7 @@
   #toolPanel input{max-width:150px}
   #toolPanel #advEndpoint{flex:1;min-width:250px;max-width:none}
   #toolPanel .adv-body{width:100%;max-width:none;box-sizing:border-box;resize:vertical;min-height:56px}
-  .mdl-sel{background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:5px;padding:3px 6px;font-family:monospace;font-size:calc(var(--uifs,12px) - 1px);max-width:210px}
+  .mdl-sel{background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:5px;padding:3px 6px;font-family:monospace;font-size:calc(var(--uifs,12px) - 1px);max-width:100%}
   .webtog{border:none;border-radius:5px;padding:2px 12px;font-weight:700;cursor:pointer;font-size:calc(var(--uifs,12px) - 1px);font-family:monospace}
   .webtog.on{background:#22c55e;color:#052e13}
   .webtog.off{background:#333;color:#aaa}
@@ -73,6 +73,7 @@
   #target{font-size:var(--uifs,12px)}
   .console .lock{font-size:var(--uifs,12px)}
   .fontctl{margin-left:12px;color:#888;font-size:11px;display:inline-flex;gap:6px;align-items:center}
+  .mini-target{background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:5px;padding:1px 6px;font-family:monospace;font-size:var(--uifs,12px);text-transform:none;letter-spacing:normal;margin-left:6px}
   .agent-link:hover{text-decoration:underline}
 </style></head><body>
 <header>
@@ -86,7 +87,7 @@
     <div class="fleet" id="fleet"><span class="muted">loading&hellip;</span></div>
   </section>
   <section class="console">
-    <h2 class="sect-h" onclick="toggleChrome()" title="Collapse/expand the target + color + text-size controls (agent chips above still set the target)">Target-locked console <span class="caret" id="chromeCaret">&#9662;</span><span id="chromeTarget"></span></h2>
+    <h2 class="sect-h" onclick="toggleChrome()" title="Collapse/expand the target + color + text-size controls (agent chips above still set the target)">Target-locked console <span class="caret" id="chromeCaret">&#9662;</span><span id="chromeTarget">&middot; target: <select id="targetMini" class="mini-target" onclick="event.stopPropagation()" title="Switch the console target (works while this panel is collapsed)"></select></span></h2>
     <div id="chrome">
     <div class="lock">
       <span class="muted">target:</span>
@@ -230,7 +231,8 @@ async function loadFleet(){
   AGENTS = await (await fetch('/api/agents')).json();
   // target dropdown
   $('#target').innerHTML = AGENTS.map(a=>'<option>'+a.name+'</option>').join('');
-  $('#target').onchange = ()=>{ const a=AGENTS.find(x=>x.name===$('#target').value); $('#targetHost').textContent = a? a.host : ''; const at=$('#advTarget'); if(at) at.textContent = a? a.name : '\u2014'; const ct=$('#chromeTarget'); if(ct) ct.textContent = '\u00b7 target: '+$('#target').value; highlightCard($('#target').value); if(activeTool==='persona') personaLoad(); };
+  const tm0=$('#targetMini'); if(tm0){ tm0.innerHTML = AGENTS.map(a=>'<option>'+a.name+'</option>').join(''); tm0.onchange = ()=>selectTarget(tm0.value); }
+  $('#target').onchange = ()=>{ const a=AGENTS.find(x=>x.name===$('#target').value); $('#targetHost').textContent = a? a.host : ''; const at=$('#advTarget'); if(at) at.textContent = a? a.name : '\u2014'; const tm=$('#targetMini'); if(tm && tm.value!==$('#target').value) tm.value=$('#target').value; highlightCard($('#target').value); if(activeTool==='persona') personaLoad(); };
   $('#target').onchange();
   // render + probe each agent
   $('#fleet').innerHTML = '';
@@ -240,7 +242,8 @@ async function loadFleet(){
       + '<span class="name" id="nm-'+a.name+'">'+a.name+'</span>'
       + '<span class="badge">'+a.profile+'</span>'
       + '<span class="minimdl" id="minimdl-'+a.name+'"></span>'
-      + '<span class="minipill" id="miniweb-'+a.name+'"></span></div>'
+      + '<span class="minipill" id="miniweb-'+a.name+'"></span>'
+      + '<span class="minipill" id="minipend-'+a.name+'"></span></div>'
       + '<div class="row" id="rc-'+a.name+'">probing&hellip;</div>'
       + '<div class="row" id="rx-'+a.name+'"></div>'
       + '<div class="row" id="mdl-'+a.name+'"></div>'
@@ -270,14 +273,22 @@ async function probe(a){
     rc.innerHTML = '<span class="st-bad">unreachable / auth failed (HTTP '+color.status+')</span> '+(color.body||'').slice(0,80);
   }
   if(ok){ loadModel(a); loadWeb(a); }
-  // castor extras: model + pending count
-  if(a.profile==='castor' && ok){
+  // Pending-queue visibility (count only -- REVIEW stays in the agent's own webchat, per the
+  // control-plane/agent domain division). Generic: any agent exposing GET /pending shows a live
+  // count (castor's vision intake returns {groups:[...]}); keel has no pending endpoint today,
+  // so its row stays empty until the doc-queue backlog item lands. The old 'model: ok' hint is
+  // gone -- the live model dropdown above already carries that signal.
+  if(ok){
     const rx=$('#rx-'+a.name);
-    const [model,pending] = await Promise.all([api(a.name,'GET','/model'), api(a.name,'GET','/pending')]);
-    let parts=[];
-    try{ const p=JSON.parse(pending.body); const n=Array.isArray(p)?p.length:(p.items?p.items.length:(p.count??'?')); parts.push('pending: '+n); }catch{}
-    if(model.status===200) parts.push('model: ok');
-    rx.textContent = parts.join('  \u00b7  ');
+    const pending = await api(a.name,'GET','/pending');
+    if(pending.status===200){
+      try{
+        const p=JSON.parse(pending.body);
+        const n=Array.isArray(p.groups)?p.groups.length:(Array.isArray(p)?p.length:(Array.isArray(p.items)?p.items.length:(p.count??0)));
+        rx.textContent='pending: '+n;
+        const mp=$('#minipend-'+a.name); if(mp){ mp.textContent='pend '+n; mp.style.display=n>0?'':'none'; }
+      }catch(e){ rx.textContent=''; }
+    } else { rx.textContent=''; }
   }
 }
 
