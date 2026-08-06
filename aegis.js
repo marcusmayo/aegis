@@ -138,6 +138,16 @@ function runFleetctl(args) {
 
 function sendJson(res, obj, status = 200) { res.statusCode = status; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(obj)); }
 
+// Destructive lanes need real Cloudflare credentials -- a placeholder CF_ACCOUNT_ID silently
+// orphaned heimdall's tunnel/DNS/Access/token during teardown. Fail closed with the exact fix.
+function cfEnvProblem() {
+  const id = process.env.CF_ACCOUNT_ID || '';
+  const tok = process.env.CF_API_TOKEN || '';
+  if (!id || /[<>\s]/.test(id)) return 'CF_ACCOUNT_ID missing or a placeholder — restart Aegis with the real 32-hex account id';
+  if (!tok || /[<>\s]/.test(tok)) return 'CF_API_TOKEN missing or a placeholder — restart Aegis with the real fleet-aegis-provisioning token';
+  return '';
+}
+
 // Stream a long-running fleetctl command over the HTTP response (chunked text). extraEnv is
 // merged into the CHILD env only -- used for seed secrets, which are never persisted by Aegis
 // and never appear in argv (so no shell history / process-listing exposure).
@@ -150,10 +160,21 @@ function streamFleetctl(res, args, extraEnv, onDone) {
     cwd: FLEET_IAC_ROOT,
     env: { ...process.env, ...(extraEnv || {}), AEGIS_CONFIG: CFG, NO_COLOR: '1' },
   });
-  child.stdout.on('data', (d) => res.write(d));
-  child.stderr.on('data', (d) => res.write(d));
-  child.on('close', (code) => { try { if (onDone) onDone(code); } catch { /* ignore */ } res.write('\n[fleetctl exit ' + code + ']\n'); res.end(); });
-  child.on('error', (e) => { res.write('\n[spawn error] ' + e.message + '\n'); res.end(); });
+  // Heartbeat: long Azure operations (RG create/delete) buffer for minutes with zero output;
+  // a silent socket is where the heimdall-teardown stream died. Emit a liveness line whenever
+  // the child has been quiet >20s -- keeps the connection warm and the operator informed.
+  const t0 = Date.now(); let lastOut = Date.now();
+  const beat = setInterval(() => {
+    if (child.exitCode !== null) return;
+    if (Date.now() - lastOut > 20000) {
+      res.write('\n[still running — ' + Math.round((Date.now() - t0) / 1000) + 's elapsed; long Azure steps buffer their output]\n');
+      lastOut = Date.now();
+    }
+  }, 5000);
+  child.stdout.on('data', (d) => { lastOut = Date.now(); res.write(d); });
+  child.stderr.on('data', (d) => { lastOut = Date.now(); res.write(d); });
+  child.on('close', (code) => { clearInterval(beat); try { if (onDone) onDone(code); } catch { /* ignore */ } res.write('\n[fleetctl exit ' + code + ']\n'); res.end(); });
+  child.on('error', (e) => { clearInterval(beat); res.write('\n[spawn error] ' + e.message + '\n'); res.end(); });
 }
 
 // Panel-facing cleanup for plan output: the panel has its own Execute UI, so strip the
@@ -249,6 +270,8 @@ const server = http.createServer(async (req, res) => {
     if (!NAME_RE.test(name)) return sendJson(res, { ok: false, error: 'invalid agent name' }, 400);
     const required = 'provision ' + name;
     if (attest !== required) return sendJson(res, { ok: false, error: 'attestation does not match — type exactly:  ' + required }, 403);
+    const cfp = cfEnvProblem();
+    if (cfp) return sendJson(res, { ok: false, error: cfp }, 400);
     if (!FLEET_IAC_ROOT || !fs.existsSync(fleetctlPath())) return sendJson(res, { ok: false, error: 'FLEET_IAC_ROOT not set / fleetctl not found' }, 500);
     const persisted = path.join(FLEET_IAC_ROOT, 'agents', `${name}.agent.jsonc`);
     if (!fs.existsSync(persisted)) return sendJson(res, { ok: false, error: `no agents/${name}.agent.jsonc — write the contract first` }, 400);
@@ -276,26 +299,15 @@ const server = http.createServer(async (req, res) => {
     if (!NAME_RE.test(name)) return sendJson(res, { ok: false, error: 'invalid agent name' }, 400);
     const required = 'decommission ' + name;
     if (attest !== required) return sendJson(res, { ok: false, error: 'attestation does not match — type exactly:  ' + required }, 403);
-    const fp = fleetctlPath();
-    if (!FLEET_IAC_ROOT || !fs.existsSync(fp)) return sendJson(res, { ok: false, error: 'FLEET_IAC_ROOT not set / fleetctl not found' }, 500);
+    const cfp = cfEnvProblem();
+    if (cfp) return sendJson(res, { ok: false, error: cfp }, 400);
+    if (!FLEET_IAC_ROOT || !fs.existsSync(fleetctlPath())) return sendJson(res, { ok: false, error: 'FLEET_IAC_ROOT not set / fleetctl not found' }, 500);
     const { file, temp } = contractFor(name);
     audit({ action: 'decommission-go', name, phase: 'start' });
-    res.statusCode = 200;
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-cache');
-    const child = spawn('node', [fp, 'decommission', file, '--go'], {
-      cwd: FLEET_IAC_ROOT,
-      env: { ...process.env, AEGIS_CONFIG: CFG, NO_COLOR: '1' },
-    });
-    child.stdout.on('data', (d) => res.write(d));
-    child.stderr.on('data', (d) => res.write(d));
-    child.on('close', (code) => {
+    streamFleetctl(res, ['decommission', file, '--go'], null, (code) => {
       if (temp) { try { fs.unlinkSync(file); } catch { /* best effort */ } }
       audit({ action: 'decommission-go', name, phase: 'done', code });
-      res.write('\n[fleetctl exit ' + code + ']\n');
-      res.end();
     });
-    child.on('error', (e) => { res.write('\n[spawn error] ' + e.message + '\n'); res.end(); });
     return;
   }
   res.statusCode = 404; res.end('not found');
@@ -354,4 +366,4 @@ function relay(browserWs, agent) {
 }
 
 server.listen(PORT, HOST, () =>
-  console.log(`Aegis on http://${HOST}:${PORT}  agents: ${loadAgents().map(a => a.name).join(', ') || '(none - fill aegis.config.json)'}  \u00b7  fleetctl: ${FLEET_IAC_ROOT || 'MISSING (set FLEET_IAC_ROOT or aegis.config.json fleetIacRoot)'}`));
+  console.log(`Aegis on http://${HOST}:${PORT}  agents: ${loadAgents().map(a => a.name).join(', ') || '(none - fill aegis.config.json)'}  \u00b7  fleetctl: ${FLEET_IAC_ROOT || 'MISSING (set FLEET_IAC_ROOT or aegis.config.json fleetIacRoot)'}  \u00b7  cf: ${cfEnvProblem() ? 'NOT READY (' + cfEnvProblem() + ')' : 'ok'}`));
