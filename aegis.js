@@ -93,9 +93,7 @@ function fleetctlPath() { return path.join(FLEET_IAC_ROOT, 'provision', 'bin', '
 // Resolve a contract file for <name>. Prefer the persisted agents/<name>.agent.jsonc
 // (so --go deletes the real local config); otherwise synthesize a temp contract from
 // the request / the aegis.config entry (host -> domain). Temp files are caller-deleted.
-function contractFor(name, opts = {}) {
-  const persisted = FLEET_IAC_ROOT ? path.join(FLEET_IAC_ROOT, 'agents', `${name}.agent.jsonc`) : '';
-  if (!opts.forceTemp && persisted && fs.existsSync(persisted)) return { file: persisted, temp: false };
+function contractBody(name, opts = {}) {
   let { profile, domain } = opts;
   if (!profile || !domain) {
     const a = agentByName(name);
@@ -103,8 +101,13 @@ function contractFor(name, opts = {}) {
   }
   profile = (profile === 'castor') ? 'castor' : 'keel';
   domain = domain || 'keel-pm.com';
+  return JSON.stringify({ contract: 1, name, profile, domain }, null, 2) + '\n';
+}
+function contractFor(name, opts = {}) {
+  const persisted = FLEET_IAC_ROOT ? path.join(FLEET_IAC_ROOT, 'agents', `${name}.agent.jsonc`) : '';
+  if (!opts.forceTemp && persisted && fs.existsSync(persisted)) return { file: persisted, temp: false };
   const tmp = path.join(os.tmpdir(), `aegis-${name}-${Date.now()}.agent.jsonc`);
-  fs.writeFileSync(tmp, JSON.stringify({ contract: 1, name, profile, domain }, null, 2) + '\n');
+  fs.writeFileSync(tmp, contractBody(name, opts));
   return { file: tmp, temp: true };
 }
 
@@ -125,6 +128,24 @@ function runFleetctl(args) {
 }
 
 function sendJson(res, obj, status = 200) { res.statusCode = status; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(obj)); }
+
+// Stream a long-running fleetctl command over the HTTP response (chunked text). extraEnv is
+// merged into the CHILD env only -- used for seed secrets, which are never persisted by Aegis
+// and never appear in argv (so no shell history / process-listing exposure).
+function streamFleetctl(res, args, extraEnv, onDone) {
+  const fp = fleetctlPath();
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  const child = spawn('node', [fp, ...args], {
+    cwd: FLEET_IAC_ROOT,
+    env: { ...process.env, ...(extraEnv || {}), AEGIS_CONFIG: CFG, NO_COLOR: '1' },
+  });
+  child.stdout.on('data', (d) => res.write(d));
+  child.stderr.on('data', (d) => res.write(d));
+  child.on('close', (code) => { try { if (onDone) onDone(code); } catch { /* ignore */ } res.write('\n[fleetctl exit ' + code + ']\n'); res.end(); });
+  child.on('error', (e) => { res.write('\n[spawn error] ' + e.message + '\n'); res.end(); });
+}
 
 // Panel-facing cleanup for plan output: the panel has its own Execute UI, so strip the
 // CLI "To EXECUTE … --go" hint, and relativize machine-absolute paths (FLEET_IAC_ROOT
@@ -168,11 +189,62 @@ const server = http.createServer(async (req, res) => {
     const b = await readBody(req);
     const name = String(b.name || '').trim();
     if (!NAME_RE.test(name)) return sendJson(res, { ok: false, out: 'invalid agent name — must match ^[a-z][a-z0-9-]{1,23}$' }, 400);
-    const { file, temp } = contractFor(name, { forceTemp: true, profile: b.profile, domain: b.domain });
+    const usePersisted = !!b.usePersisted;
+    const { file, temp } = contractFor(name, { forceTemp: !usePersisted, profile: b.profile, domain: b.domain });
     const r = runFleetctl(['plan', file]);
     if (temp) { try { fs.unlinkSync(file); } catch { /* best effort */ } }
     audit({ action: 'provision-plan', name, code: r.code });
     return sendJson(res, { ok: r.code === 0, code: r.code, out: panelClean(r.out) });
+  }
+  // Provision WRITE-CONTRACT: persist agents/<name>.agent.jsonc (secret-free, contract:1).
+  // Refuses to overwrite -- an existing contract means a live (or decommissionable) agent;
+  // pick a new name or decommission first. This file is what `up --go` runs and what
+  // decommission later deletes (the local-config surface).
+  if (req.url === '/api/provision/write-contract' && req.method === 'POST') {
+    const b = await readBody(req);
+    const name = String(b.name || '').trim();
+    if (!NAME_RE.test(name)) return sendJson(res, { ok: false, error: 'invalid agent name — must match ^[a-z][a-z0-9-]{1,23}$' }, 400);
+    if (!FLEET_IAC_ROOT) return sendJson(res, { ok: false, error: 'FLEET_IAC_ROOT not set' }, 500);
+    const file = path.join(FLEET_IAC_ROOT, 'agents', `${name}.agent.jsonc`);
+    if (fs.existsSync(file)) return sendJson(res, { ok: false, error: `agents/${name}.agent.jsonc already exists — decommission first or pick a new name` }, 409);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, contractBody(name, { profile: b.profile, domain: b.domain }));
+    audit({ action: 'provision-write-contract', name });
+    return sendJson(res, { ok: true, file: `agents/${name}.agent.jsonc`, contract: JSON.parse(fs.readFileSync(file, 'utf8')) });
+  }
+  // Provision SEED: vault-seed the agent's API keys BEFORE `up --go` (bootstrap fetches them
+  // at first boot -- a missed seed was part of example-03's failure). Keys are validated here,
+  // passed to fleetctl set-secrets via the CHILD env only, never persisted or logged by Aegis.
+  if (req.url === '/api/provision/seed' && req.method === 'POST') {
+    const b = await readBody(req);
+    const name = String(b.name || '').trim();
+    if (!NAME_RE.test(name)) return sendJson(res, { ok: false, error: 'invalid agent name' }, 400);
+    const anth = String(b.anthropicKey || '').trim();
+    const ork = String(b.openrouterKey || '').trim();
+    if (!anth || /[<>]/.test(anth) || !anth.startsWith('sk-ant-')) return sendJson(res, { ok: false, error: 'anthropicKey must be a real sk-ant-… key (no placeholders)' }, 400);
+    if (!ork || /[<>]/.test(ork) || !ork.startsWith('sk-or-')) return sendJson(res, { ok: false, error: 'openrouterKey must be a real sk-or-… key (no placeholders)' }, 400);
+    if (!FLEET_IAC_ROOT || !fs.existsSync(fleetctlPath())) return sendJson(res, { ok: false, error: 'FLEET_IAC_ROOT not set / fleetctl not found' }, 500);
+    const persisted = path.join(FLEET_IAC_ROOT, 'agents', `${name}.agent.jsonc`);
+    if (!fs.existsSync(persisted)) return sendJson(res, { ok: false, error: `no agents/${name}.agent.jsonc — write the contract first` }, 400);
+    audit({ action: 'provision-seed', name, phase: 'start' });
+    return streamFleetctl(res, ['set-secrets', name], { ANTHROPIC_API_KEY: anth, OPENROUTER_API_KEY: ork }, (code) => audit({ action: 'provision-seed', name, phase: 'done', code }));
+  }
+  // Provision EXECUTE (CREATES CLOUD RESOURCES): typed attestation `provision <name>`, then
+  // streams `fleetctl up <contract> --go` LIVE via async spawn (the decommission-go pattern).
+  // up's own preflight stays the fail-closed gate (caps/budget/placeholders): a failing check
+  // aborts 'nothing created' before anything bills.
+  if (req.url === '/api/provision/go' && req.method === 'POST') {
+    const b = await readBody(req);
+    const name = String(b.name || '').trim();
+    const attest = String(b.attest || '').trim();
+    if (!NAME_RE.test(name)) return sendJson(res, { ok: false, error: 'invalid agent name' }, 400);
+    const required = 'provision ' + name;
+    if (attest !== required) return sendJson(res, { ok: false, error: 'attestation does not match — type exactly:  ' + required }, 403);
+    if (!FLEET_IAC_ROOT || !fs.existsSync(fleetctlPath())) return sendJson(res, { ok: false, error: 'FLEET_IAC_ROOT not set / fleetctl not found' }, 500);
+    const persisted = path.join(FLEET_IAC_ROOT, 'agents', `${name}.agent.jsonc`);
+    if (!fs.existsSync(persisted)) return sendJson(res, { ok: false, error: `no agents/${name}.agent.jsonc — write the contract first` }, 400);
+    audit({ action: 'provision-go', name, phase: 'start' });
+    return streamFleetctl(res, ['up', persisted, '--go'], null, (code) => audit({ action: 'provision-go', name, phase: 'done', code }));
   }
   // Decommission plan (READ-ONLY): discover which surfaces an agent still occupies.
   if (req.url === '/api/decommission/plan' && req.method === 'POST') {
