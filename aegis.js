@@ -110,7 +110,9 @@ function contractBody(name, opts = {}) {
   }
   profile = (profile === 'castor') ? 'castor' : 'keel';
   domain = domain || 'keel-pm.com';
-  return JSON.stringify({ contract: 1, name, profile, domain }, null, 2) + '\n';
+  const body = { contract: 1, name, profile, domain };
+  if (opts.operatorEmail && !/[<>\s]/.test(opts.operatorEmail) && opts.operatorEmail.includes('@')) body.operatorEmail = opts.operatorEmail;
+  return JSON.stringify(body, null, 2) + '\n';
 }
 function contractFor(name, opts = {}) {
   const persisted = FLEET_IAC_ROOT ? path.join(FLEET_IAC_ROOT, 'agents', `${name}.agent.jsonc`) : '';
@@ -224,7 +226,7 @@ const server = http.createServer(async (req, res) => {
     const name = String(b.name || '').trim();
     if (!NAME_RE.test(name)) return sendJson(res, { ok: false, out: 'invalid agent name — must match ^[a-z][a-z0-9-]{1,23}$' }, 400);
     const usePersisted = !!b.usePersisted;
-    const { file, temp } = contractFor(name, { forceTemp: !usePersisted, profile: b.profile, domain: b.domain });
+    const { file, temp } = contractFor(name, { forceTemp: !usePersisted, profile: b.profile, domain: b.domain, operatorEmail: String(b.operatorEmail || '').trim() });
     const r = runFleetctl(['plan', file]);
     if (temp) { try { fs.unlinkSync(file); } catch { /* best effort */ } }
     audit({ action: 'provision-plan', name, code: r.code });
@@ -242,7 +244,7 @@ const server = http.createServer(async (req, res) => {
     const file = path.join(FLEET_IAC_ROOT, 'agents', `${name}.agent.jsonc`);
     if (fs.existsSync(file)) return sendJson(res, { ok: false, error: `agents/${name}.agent.jsonc already exists — decommission first or pick a new name` }, 409);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, contractBody(name, { profile: b.profile, domain: b.domain }));
+    fs.writeFileSync(file, contractBody(name, { profile: b.profile, domain: b.domain, operatorEmail: String(b.operatorEmail || '').trim() }));
     audit({ action: 'provision-write-contract', name });
     return sendJson(res, { ok: true, file: `agents/${name}.agent.jsonc`, contract: JSON.parse(fs.readFileSync(file, 'utf8')) });
   }

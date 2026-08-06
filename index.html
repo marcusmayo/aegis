@@ -130,6 +130,9 @@
     <div class="tool-row"><span class="muted">domain</span>
       <input id="pvDomain" placeholder="domain" value="keel-pm.com">
     </div>
+    <div class="tool-row"><span class="muted">operator email</span>
+      <input id="pvOpEmail" placeholder="blank = fleet default (aegis.config.json)" style="flex:1;min-width:200px">
+    </div>
     <div class="tool-row"><button class="send" onclick="provisionPlan()">Preview provision</button></div>
     <pre class="planout" id="provOut"><span class="muted">plan output appears here&hellip;</span></pre>
     <div class="muted" style="font-size:11px;margin:8px 0 4px">To EXECUTE (creates cloud resources): 1) Write contract &rarr; 2) type <b style="color:#c9a227">provision &lt;name&gt;</b> and Execute &rarr; 3) once the stream shows the Key Vault created (~2 min in), <b>Seed keys from a SECOND Aegis tab</b> &mdash; the vault is created by up, and bootstrap fetches the keys near the end of the build (~8&ndash;10 min), so mid-build seeding is the correct window. fleetctl's preflight (caps &middot; budget &middot; placeholders &middot; operator email) stays the fail-closed gate &mdash; a failing check aborts with nothing created.</div>
@@ -550,14 +553,14 @@ async function planPost(url, body, outId){
 function provisionPlan(){
   const name = $('#pvName').value.trim();
   if(!name){ $('#provOut').textContent = 'enter an agent name'; return; }
-  planPost('/api/provision/plan', { name, profile: $('#pvProfile').value, domain: $('#pvDomain').value.trim() }, 'provOut');
+  planPost('/api/provision/plan', { name, profile: $('#pvProfile').value, domain: $('#pvDomain').value.trim(), operatorEmail: $('#pvOpEmail').value.trim() }, 'provOut');
 }
 // ---- Provision EXECUTE lane (P3): contract -> seed -> attested up --go, all via Aegis ----
 async function provisionWriteContract(){
   const name = $('#pvName').value.trim(); const out = $('#provOut');
   if(!name){ out.textContent = 'enter an agent name'; return; }
   try{
-    const r = await fetch('/api/provision/write-contract', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name, profile: $('#pvProfile').value, domain: $('#pvDomain').value.trim() }) });
+    const r = await fetch('/api/provision/write-contract', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name, profile: $('#pvProfile').value, domain: $('#pvDomain').value.trim(), operatorEmail: $('#pvOpEmail').value.trim() }) });
     const j = await r.json();
     out.textContent = j.ok
       ? ('contract written: ' + j.file + '\n\n' + JSON.stringify(j.contract, null, 2) + '\n\nNext: Plan (real contract) to review the gate, then attest + Execute; seed the vault mid-build (second tab) once the Key Vault exists.')
