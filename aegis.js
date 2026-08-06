@@ -85,7 +85,16 @@ function readBody(req) {
 // points at the agent-fleet-iac checkout.
 const os = require('os');
 const { spawnSync, spawn } = require('child_process');
-const FLEET_IAC_ROOT = process.env.FLEET_IAC_ROOT || '';
+// Resolve the agent-fleet-iac checkout: env wins, then aegis.config.json "fleetIacRoot",
+// then the sibling ../agent-fleet-iac (the standard workstation layout). Kills the
+// per-window env-loss failure: a bare `node aegis.js` finds fleetctl on its own.
+const FLEET_IAC_ROOT = (function () {
+  if (process.env.FLEET_IAC_ROOT) return process.env.FLEET_IAC_ROOT;
+  try { const cfg = JSON.parse(fs.readFileSync(CFG, 'utf8')); if (cfg.fleetIacRoot) return cfg.fleetIacRoot; } catch { /* no config yet */ }
+  const sib = path.join(__dirname, '..', 'agent-fleet-iac');
+  try { if (fs.existsSync(path.join(sib, 'provision', 'bin', 'fleetctl.js'))) return sib; } catch { /* ignore */ }
+  return '';
+})();
 const NAME_RE = /^[a-z][a-z0-9-]{1,23}$/;
 
 function fleetctlPath() { return path.join(FLEET_IAC_ROOT, 'provision', 'bin', 'fleetctl.js'); }
@@ -345,4 +354,4 @@ function relay(browserWs, agent) {
 }
 
 server.listen(PORT, HOST, () =>
-  console.log(`Aegis on http://${HOST}:${PORT}  agents: ${loadAgents().map(a => a.name).join(', ') || '(none - fill aegis.config.json)'}`));
+  console.log(`Aegis on http://${HOST}:${PORT}  agents: ${loadAgents().map(a => a.name).join(', ') || '(none - fill aegis.config.json)'}  \u00b7  fleetctl: ${FLEET_IAC_ROOT || 'MISSING (set FLEET_IAC_ROOT or aegis.config.json fleetIacRoot)'}`));
