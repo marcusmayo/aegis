@@ -128,7 +128,7 @@ function runFleetctl(args) {
   if (!fs.existsSync(fp)) return { code: 2, out: `fleetctl not found at ${fp} — check FLEET_IAC_ROOT.` };
   const r = spawnSync('node', [fp, ...args], {
     cwd: FLEET_IAC_ROOT,
-    env: { ...process.env, AEGIS_CONFIG: CFG, NO_COLOR: '1' },
+    env: { ...process.env, CF_OPERATOR_EMAIL: operatorEmail(), AEGIS_CONFIG: CFG, NO_COLOR: '1' },
     encoding: 'utf8',
     maxBuffer: 8 * 1024 * 1024,
   });
@@ -140,6 +140,10 @@ function sendJson(res, obj, status = 200) { res.statusCode = status; res.setHead
 
 // Destructive lanes need real Cloudflare credentials -- a placeholder CF_ACCOUNT_ID silently
 // orphaned heimdall's tunnel/DNS/Access/token during teardown. Fail closed with the exact fix.
+function operatorEmail() {
+  try { const c = JSON.parse(fs.readFileSync(CFG, 'utf8')); return (process.env.CF_OPERATOR_EMAIL || c.operatorEmail || '').trim(); }
+  catch { return (process.env.CF_OPERATOR_EMAIL || '').trim(); }
+}
 function cfEnvProblem() {
   const id = process.env.CF_ACCOUNT_ID || '';
   const tok = process.env.CF_API_TOKEN || '';
@@ -158,7 +162,7 @@ function streamFleetctl(res, args, extraEnv, onDone) {
   res.setHeader('Cache-Control', 'no-cache');
   const child = spawn('node', [fp, ...args], {
     cwd: FLEET_IAC_ROOT,
-    env: { ...process.env, ...(extraEnv || {}), AEGIS_CONFIG: CFG, NO_COLOR: '1' },
+    env: { ...process.env, CF_OPERATOR_EMAIL: operatorEmail(), ...(extraEnv || {}), AEGIS_CONFIG: CFG, NO_COLOR: '1' },
   });
   // Heartbeat: long Azure operations (RG create/delete) buffer for minutes with zero output;
   // a silent socket is where the heimdall-teardown stream died. Emit a liveness line whenever
@@ -272,6 +276,8 @@ const server = http.createServer(async (req, res) => {
     if (attest !== required) return sendJson(res, { ok: false, error: 'attestation does not match — type exactly:  ' + required }, 403);
     const cfp = cfEnvProblem();
     if (cfp) return sendJson(res, { ok: false, error: cfp }, 400);
+    const opEmail = operatorEmail();
+    if (!opEmail || /[<>\s]/.test(opEmail) || !opEmail.includes('@')) return sendJson(res, { ok: false, error: 'operator email missing — add "operatorEmail": "you@example.com" to aegis.config.json (the email you log into the agents with), then retry (no restart needed)' }, 400);
     if (!FLEET_IAC_ROOT || !fs.existsSync(fleetctlPath())) return sendJson(res, { ok: false, error: 'FLEET_IAC_ROOT not set / fleetctl not found' }, 500);
     const persisted = path.join(FLEET_IAC_ROOT, 'agents', `${name}.agent.jsonc`);
     if (!fs.existsSync(persisted)) return sendJson(res, { ok: false, error: `no agents/${name}.agent.jsonc — write the contract first` }, 400);

@@ -132,16 +132,16 @@
     </div>
     <div class="tool-row"><button class="send" onclick="provisionPlan()">Preview provision</button></div>
     <pre class="planout" id="provOut"><span class="muted">plan output appears here&hellip;</span></pre>
-    <div class="muted" style="font-size:11px;margin:8px 0 4px">To EXECUTE (creates cloud resources): 1) Write contract &rarr; 2) Seed keys &rarr; 3) type <b style="color:#c9a227">provision &lt;name&gt;</b> and Execute. fleetctl's own preflight (caps &middot; budget &middot; placeholders) stays the fail-closed gate &mdash; a failing check aborts with nothing created.</div>
+    <div class="muted" style="font-size:11px;margin:8px 0 4px">To EXECUTE (creates cloud resources): 1) Write contract &rarr; 2) type <b style="color:#c9a227">provision &lt;name&gt;</b> and Execute &rarr; 3) once the stream shows the Key Vault created (~2 min in), <b>Seed keys from a SECOND Aegis tab</b> &mdash; the vault is created by up, and bootstrap fetches the keys near the end of the build (~8&ndash;10 min), so mid-build seeding is the correct window. fleetctl's preflight (caps &middot; budget &middot; placeholders &middot; operator email) stays the fail-closed gate &mdash; a failing check aborts with nothing created.</div>
     <div class="tool-row"><button class="send" onclick="provisionWriteContract()">1. Write contract</button><button class="send" onclick="provisionPlanPersisted()">Plan (real contract)</button></div>
+    <div class="tool-row">
+      <input id="pvAttest" placeholder="provision <name>" oninput="pvAttestCheck()" style="flex:1;min-width:180px">
+      <button id="pvExec" class="send" onclick="provisionGo()" disabled>2. Execute up --go</button>
+    </div>
     <div class="tool-row"><span class="muted">keys</span>
       <input id="pvAnth" type="password" placeholder="sk-ant-&hellip; (Anthropic)" style="flex:1;min-width:150px">
       <input id="pvOrk" type="password" placeholder="sk-or-&hellip; (OpenRouter)" style="flex:1;min-width:150px">
-      <button class="send" onclick="provisionSeed()">2. Seed vault</button>
-    </div>
-    <div class="tool-row">
-      <input id="pvAttest" placeholder="provision <name>" oninput="pvAttestCheck()" style="flex:1;min-width:180px">
-      <button id="pvExec" class="send" onclick="provisionGo()" disabled>3. Execute up --go</button>
+      <button class="send" onclick="provisionSeed()" title="Run from a SECOND tab while up --go streams here - needs the Key Vault to exist">3. Seed vault (during build)</button>
     </div>
   </div>
   <div class="tool-content" id="tc-dec">
