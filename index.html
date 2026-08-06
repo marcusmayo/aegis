@@ -76,7 +76,7 @@
   .console .lock{font-size:var(--uifs,12px)}
   .fontctl{margin-left:12px;color:#888;font-size:11px;display:inline-flex;gap:6px;align-items:center}
   .mini-target{background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:5px;padding:1px 6px;font-family:monospace;font-size:var(--uifs,12px);text-transform:none;letter-spacing:normal;margin-left:6px}
-  .mini-host{color:var(--dim);font-size:calc(var(--uifs,12px) - 1px);font-family:monospace;text-transform:none;letter-spacing:normal;margin-left:8px;font-weight:400}
+  .mini-host{color:#6ea8ff;text-decoration:none;font-size:calc(var(--uifs,12px) - 1px);font-family:monospace;text-transform:none;letter-spacing:normal;margin-left:8px;font-weight:400}
   .agent-link:hover{text-decoration:underline}
 </style></head><body>
 <header>
@@ -90,7 +90,7 @@
     <div class="fleet" id="fleet"><span class="muted">loading&hellip;</span></div>
   </section>
   <section class="console">
-    <h2 class="sect-h" onclick="toggleChrome()" title="Collapse/expand the target + color + text-size controls (agent chips above still set the target)">Target-locked console <span class="caret" id="chromeCaret">&#9662;</span><span id="chromeTarget">&middot; target: <select id="targetMini" class="mini-target" onclick="event.stopPropagation()" title="Switch the console target (works while this panel is collapsed)"></select> <span class="mini-host" id="targetHost"></span></span></h2>
+    <h2 class="sect-h" onclick="toggleChrome()" title="Collapse/expand the target + color + text-size controls (agent chips above still set the target)">Target-locked console <span class="caret" id="chromeCaret">&#9662;</span><span id="chromeTarget">&middot; target: <select id="targetMini" class="mini-target" onclick="event.stopPropagation()" title="Switch the console target (works while this panel is collapsed)"></select> <a class="mini-host" id="targetHost" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Open the selected agent's webchat (Cloudflare Access login)"></a></span></h2>
     <div id="chrome">
     <!-- #target is the canonical state carrier all JS drives; the VISIBLE selector is the
          header targetMini (works collapsed or expanded), so only one is shown. -->
@@ -232,7 +232,7 @@ async function loadFleet(){
   // target dropdown
   $('#target').innerHTML = AGENTS.map(a=>'<option>'+a.name+'</option>').join('');
   const tm0=$('#targetMini'); if(tm0){ tm0.innerHTML = AGENTS.map(a=>'<option>'+a.name+'</option>').join(''); tm0.onchange = ()=>selectTarget(tm0.value); }
-  $('#target').onchange = ()=>{ const a=AGENTS.find(x=>x.name===$('#target').value); $('#targetHost').textContent = a? a.host : ''; const at=$('#advTarget'); if(at) at.textContent = a? a.name : '\u2014'; const tm=$('#targetMini'); if(tm && tm.value!==$('#target').value) tm.value=$('#target').value; highlightCard($('#target').value); if(activeTool==='persona') personaLoad(); };
+  $('#target').onchange = ()=>{ const a=AGENTS.find(x=>x.name===$('#target').value); const th=$('#targetHost'); if(th){ th.textContent = a? a.host : ''; th.href = a? ('https://'+a.host) : '#'; } const at=$('#advTarget'); if(at) at.textContent = a? a.name : '\u2014'; const tm=$('#targetMini'); if(tm && tm.value!==$('#target').value) tm.value=$('#target').value; highlightCard($('#target').value); if(activeTool==='persona') personaLoad(); };
   $('#target').onchange();
   // render + probe each agent
   $('#fleet').innerHTML = '';
@@ -246,7 +246,7 @@ async function loadFleet(){
       + '<span class="minipill" id="minipend-'+a.name+'"></span></div>'
       + '<div class="row" id="rc-'+a.name+'">probing&hellip;</div>'
       + '<div class="row" id="rx-'+a.name+'"></div>'
-      + '<div class="row"><a class="agent-link" href="https://'+a.host+'" target="_blank" rel="noopener">&#8599; open '+a.host+' (agent login)</a></div>';
+      + '<div class="row"><a class="agent-link" href="https://'+a.host+'" target="_blank" rel="noopener">&#8599; open '+a.host+'</a></div>';
     $('#fleet').appendChild(card);
     probe(a);
   }
