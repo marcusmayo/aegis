@@ -320,7 +320,7 @@ async function toggleWeb(name, enable){
   log(name,'POST','/web-access {enabled:'+enable+'}',res);
   try{ const j = JSON.parse(res.body); renderWeb(name, !!j.enabled); }catch{ loadWeb({name:name}); }
   const a = AGENTS.find(x=>x.name===name);
-  if(a){ await loadModel(a); if(enable) ensureWebModelAegis(a); }
+  if(a){ await loadModel(a); if(enable) ensureWebModelAegis(a); else restorePrevModelAegis(a); }
   webBusy[name] = Date.now();
 }
 
@@ -348,12 +348,21 @@ async function loadModel(a){
     sel.disabled = false;
   };
 }
+// Web turned OFF: put back the model that was active before the web-ON auto-switch (if any).
+async function restorePrevModelAegis(a){
+  if(!a || !a._prevSlug || a._prevSlug === a._active) { if(a) a._prevSlug = null; return; }
+  const t = a._prevSlug; a._prevSlug = null;
+  const res = await api(a.name,'POST','/model/select',{slug:t});
+  log(a.name,'POST','/model/select {slug:'+t+'} (restore pre-web)',res);
+  a._active = t; loadModel(a);
+}
 // Web just turned ON for an agent whose active model can't search: persist a switch to the
 // first web-capable model so every surface (cards, webchat, the actual turn) agrees.
 async function ensureWebModelAegis(a){
   const list = (a._models||[]).filter(o=>o.web);
   if(!list.length || list.some(o=>o.slug===a._active)) return;
   const t = list[0];
+  a._prevSlug = a._active;   // remember for restore-on-web-off
   const res = await api(a.name,'POST','/model/select',{slug:t.slug});
   log(a.name,'POST','/model/select {slug:'+t.slug+'} (web-capable)',res);
   a._active = t.slug; loadModel(a);
@@ -551,7 +560,7 @@ async function provisionWriteContract(){
     const r = await fetch('/api/provision/write-contract', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name, profile: $('#pvProfile').value, domain: $('#pvDomain').value.trim() }) });
     const j = await r.json();
     out.textContent = j.ok
-      ? ('contract written: ' + j.file + '\n\n' + JSON.stringify(j.contract, null, 2) + '\n\nNext: 2) Seed keys, then Plan (real contract) to see the caps/budget gate.')
+      ? ('contract written: ' + j.file + '\n\n' + JSON.stringify(j.contract, null, 2) + '\n\nNext: Plan (real contract) to review the gate, then attest + Execute; seed the vault mid-build (second tab) once the Key Vault exists.')
       : ('blocked (' + r.status + '): ' + (j.error || ''));
   }catch(e){ out.textContent = 'request failed: ' + e.message; }
 }
@@ -647,7 +656,7 @@ async function syncWeb(){
       const j = JSON.parse(r.body);
       const btn = el.querySelector('.webtog');
       const cur = btn ? btn.classList.contains('on') : null;
-      if(cur !== !!j.enabled){ renderWeb(a.name, !!j.enabled); await loadModel(a); if(j.enabled) ensureWebModelAegis(a); }
+      if(cur !== !!j.enabled){ renderWeb(a.name, !!j.enabled); await loadModel(a); if(j.enabled) ensureWebModelAegis(a); else restorePrevModelAegis(a); }
     }catch{}
   }
 }
