@@ -120,9 +120,9 @@
     <pre class="planout" id="advOut"><span class="muted">response appears here&hellip;</span></pre>
   </div>
   <div class="tool-content" id="tc-prov">
-    <h3>Provisioning &middot; preview <span class="muted">(read-only)</span></h3>
+    <h3>Provisioning</h3>
     <div class="tool-row"><span class="muted">name</span>
-      <input id="pvName" placeholder="a-z0-9-, 2-24 chars">
+      <input id="pvName" placeholder="a-z0-9-, 2-24 chars" oninput="pvAttestCheck()">
     </div>
     <div class="tool-row"><span class="muted">profile</span>
       <select id="pvProfile"><option value="keel">keel (portfolio)</option><option value="castor">castor (vision)</option></select>
@@ -132,6 +132,17 @@
     </div>
     <div class="tool-row"><button class="send" onclick="provisionPlan()">Preview provision</button></div>
     <pre class="planout" id="provOut"><span class="muted">plan output appears here&hellip;</span></pre>
+    <div class="muted" style="font-size:11px;margin:8px 0 4px">To EXECUTE (creates cloud resources): 1) Write contract &rarr; 2) Seed keys &rarr; 3) type <b style="color:#c9a227">provision &lt;name&gt;</b> and Execute. fleetctl's own preflight (caps &middot; budget &middot; placeholders) stays the fail-closed gate &mdash; a failing check aborts with nothing created.</div>
+    <div class="tool-row"><button class="send" onclick="provisionWriteContract()">1. Write contract</button><button class="send" onclick="provisionPlanPersisted()">Plan (real contract)</button></div>
+    <div class="tool-row"><span class="muted">keys</span>
+      <input id="pvAnth" type="password" placeholder="sk-ant-&hellip; (Anthropic)" style="flex:1;min-width:150px">
+      <input id="pvOrk" type="password" placeholder="sk-or-&hellip; (OpenRouter)" style="flex:1;min-width:150px">
+      <button class="send" onclick="provisionSeed()">2. Seed vault</button>
+    </div>
+    <div class="tool-row">
+      <input id="pvAttest" placeholder="provision <name>" oninput="pvAttestCheck()" style="flex:1;min-width:180px">
+      <button id="pvExec" class="send" onclick="provisionGo()" disabled>3. Execute up --go</button>
+    </div>
   </div>
   <div class="tool-content" id="tc-dec">
     <h3 style="color:#ef4444">Decommission &middot; preview <span class="muted">(read-only)</span></h3>
@@ -531,6 +542,54 @@ function provisionPlan(){
   const name = $('#pvName').value.trim();
   if(!name){ $('#provOut').textContent = 'enter an agent name'; return; }
   planPost('/api/provision/plan', { name, profile: $('#pvProfile').value, domain: $('#pvDomain').value.trim() }, 'provOut');
+}
+// ---- Provision EXECUTE lane (P3): contract -> seed -> attested up --go, all via Aegis ----
+async function provisionWriteContract(){
+  const name = $('#pvName').value.trim(); const out = $('#provOut');
+  if(!name){ out.textContent = 'enter an agent name'; return; }
+  try{
+    const r = await fetch('/api/provision/write-contract', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name, profile: $('#pvProfile').value, domain: $('#pvDomain').value.trim() }) });
+    const j = await r.json();
+    out.textContent = j.ok
+      ? ('contract written: ' + j.file + '\n\n' + JSON.stringify(j.contract, null, 2) + '\n\nNext: 2) Seed keys, then Plan (real contract) to see the caps/budget gate.')
+      : ('blocked (' + r.status + '): ' + (j.error || ''));
+  }catch(e){ out.textContent = 'request failed: ' + e.message; }
+}
+function provisionPlanPersisted(){
+  const name = $('#pvName').value.trim();
+  if(!name){ $('#provOut').textContent = 'enter an agent name'; return; }
+  planPost('/api/provision/plan', { name, usePersisted: true }, 'provOut');
+}
+function pvAttestCheck(){
+  const name = $('#pvName').value.trim();
+  $('#pvExec').disabled = !(name && $('#pvAttest').value.trim() === ('provision ' + name));
+}
+// Shared chunked-stream reader (same pattern as decommissionGo).
+async function streamPost(url, body, outId, btn){
+  const out = $('#'+outId);
+  try{
+    const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const ct = r.headers.get('content-type') || '';
+    if(!r.ok && ct.includes('json')){ const j = await r.json(); out.textContent = 'blocked (' + r.status + '): ' + (j.error || ''); if(btn) btn.disabled = false; return false; }
+    const reader = r.body.getReader(); const dec = new TextDecoder(); out.textContent = '';
+    while(true){ const { done, value } = await reader.read(); if(done) break; out.textContent += dec.decode(value, { stream:true }); out.scrollTop = out.scrollHeight; }
+    return true;
+  }catch(e){ out.textContent += '\nrequest failed: ' + e.message; if(btn) btn.disabled = false; return false; }
+}
+async function provisionSeed(){
+  const name = $('#pvName').value.trim(); const out = $('#provOut');
+  if(!name){ out.textContent = 'enter an agent name'; return; }
+  out.textContent = 'seeding vault\u2026\n\n';
+  await streamPost('/api/provision/seed', { name, anthropicKey: $('#pvAnth').value.trim(), openrouterKey: $('#pvOrk').value.trim() }, 'provOut');
+  $('#pvAnth').value = ''; $('#pvOrk').value = '';   // keys never linger in the DOM
+}
+async function provisionGo(){
+  const name = $('#pvName').value.trim(); const attest = $('#pvAttest').value.trim();
+  const btn = $('#pvExec'); btn.disabled = true;
+  const out = $('#provOut'); out.textContent = 'provisioning\u2026 (build + bootstrap can take ~10 minutes; output streams live)\n\n';
+  await streamPost('/api/provision/go', { name, attest }, 'provOut', btn);
+  $('#pvAttest').value = ''; btn.disabled = true;
+  setTimeout(loadFleet, 800);
 }
 function decommissionPlan(){
   const name = $('#dcName').value.trim();
