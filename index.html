@@ -500,6 +500,9 @@ async function policySet(){
     const r=await (await fetch('/api/policy/set',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key,value,attest})})).json();
     o.textContent=(r.ok?'OK\n':'REFUSED / ERROR\n')+(r.out||'');
   }catch(err){ o.textContent='set failed: '+err; }
+  document.getElementById('polVal').value='';
+  document.getElementById('polAttest').value='';
+  polHint();
   policyLoad();
 }
 
