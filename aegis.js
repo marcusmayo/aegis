@@ -327,6 +327,27 @@ const server = http.createServer(async (req, res) => {
     audit({ action: 'decommission-plan', name, code: r.code });
     return sendJson(res, { ok: r.code === 0, code: r.code, out: panelClean(r.out) });
   }
+  // Decommission EXECUTE: typed-phrase attested, streamed. The phrase is the gate
+  // ("I approve decommissioning <name>", verbatim); a mismatch refuses, mutates
+  // nothing, and the refusal is LEDGERED like every other attested attempt. On
+  // match, fleetctl decommission --go streams here via async spawn + heartbeat so
+  // the panel stays live through the minutes-long blocking RG delete.
+  if (req.url === '/api/decommission/go' && req.method === 'POST') {
+    const b = await readBody(req);
+    const name = String(b.name || '').trim();
+    const attest = String(b.attest || '');
+    if (!NAME_RE.test(name)) return sendJson(res, { ok: false, out: 'invalid agent name — must match ^[a-z][a-z0-9-]{1,23}$' }, 400);
+    const required = 'I approve decommissioning ' + name;
+    const actor = (os.userInfo().username || 'unknown');
+    if (attest.trim() !== required) {
+      audit({ action: 'decommission-go', name, actor, phrase: attest, outcome: 'refused: attestation mismatch' });
+      return sendJson(res, { ok: false, out: 'REFUSED — attestation must read exactly:\n  ' + required }, 400);
+    }
+    const { file } = contractFor(name, {});
+    audit({ action: 'decommission-go', name, actor, phrase: attest, outcome: 'started' });
+    return streamFleetctl(res, ['decommission', file, '--go'], null,
+      (code) => audit({ action: 'decommission-go', name, actor, phrase: attest, outcome: code === 0 ? 'done' : 'exit ' + code }));
+  }
   // Decommission EXECUTE (DESTRUCTIVE): requires a typed attestation phrase, then streams
   // `fleetctl decommission <contract> --go` LIVE via async spawn — so the minutes-long
   // blocking RG delete never freezes Aegis. The HTTP response body is the live output.

@@ -155,6 +155,11 @@
       <input id="dcName" placeholder="existing agent name">
       <button class="send" onclick="decommissionPlan()">Preview teardown</button>
     </div>
+    <div class="tool-row" style="margin-top:8px">
+      <input id="dcAttest" style="flex:1;min-width:260px" placeholder="type: I approve decommissioning &lt;name&gt;">
+      <button class="send" style="background:#ef4444" onclick="decommissionGo()">Execute teardown (--go)</button>
+    </div>
+    <div class="muted" style="font-size:12px" id="dcHint">attestation required — the phrase names the agent; every attempt is ledgered</div>
     <pre class="planout" id="decOut"><span class="muted">teardown plan appears here&hellip;</span></pre>
     <div class="muted" style="font-size:11px;margin:8px 0 4px">To EXECUTE (destructive): type <b style="color:#ef4444">decommission &lt;name&gt;</b> below, then Execute. Aegis runs the teardown &mdash; no CLI.</div>
     <div class="tool-row">
@@ -476,6 +481,21 @@ async function advSend(){
   $('#advOut').style.borderColor = (res.status>=200 && res.status<300) ? '#1c1c1c' : '#7f1d1d';
 }
 function toggleAdv(){ /* removed: replaced by openTool */ }
+
+async function decommissionGo(){
+  const name=(document.getElementById('dcName').value||'').trim();
+  const attest=document.getElementById('dcAttest').value;
+  const o=document.getElementById('decOut');
+  if(!name){ o.textContent='enter the agent name first'; return; }
+  o.textContent='';
+  try{
+    const resp=await fetch('/api/decommission/go',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,attest})});
+    if(!resp.body){ o.textContent=await resp.text(); return; }
+    const rd=resp.body.getReader(); const dec=new TextDecoder();
+    for(;;){ const {done,value}=await rd.read(); if(done) break; o.textContent+=dec.decode(value,{stream:true}); o.scrollTop=o.scrollHeight; }
+  }catch(err){ o.textContent+='\n[stream error] '+err; }
+  document.getElementById('dcAttest').value='';
+}
 
 async function policyLoad(){
   const o=document.getElementById('policyOut'); o.textContent='loading\u2026';
