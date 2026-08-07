@@ -102,11 +102,11 @@
   </section>
 </div>
 <div id="toolRail">
+<button class="tool-tab policy" onclick="openTool('policy')">&#9878; Policy</button>
   <button class="tool-tab persona" onclick="openTool('persona')">&#9787; Persona</button>
   <button class="tool-tab adv"  onclick="openTool('adv')">&#9998; Advanced</button>
   <button class="tool-tab prov" onclick="openTool('prov')">&#9881; Provisioning</button>
   <button class="tool-tab dec"  onclick="openTool('dec')">&#9760; Decommission</button>
-  <button class="tool-tab policy" onclick="openTool('policy')">&#9878; Policy</button>
 </div>
 <div id="toolPanel">
   <div class="tool-content" id="tc-adv">
@@ -176,8 +176,8 @@
     <button onclick="policyLoad()">Refresh policy + attestations</button>
     <pre class="planout" id="policyOut"><span class="muted">policy appears here&hellip;</span></pre>
     <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-      <select id="polKey" onchange="polHint()"><option value="maxFleet">maxFleet</option><option value="budget">budget</option></select>
-      <input id="polVal" type="number" min="1" style="width:90px" placeholder="value" oninput="polHint()">
+      <select id="polKey" onchange="polHint()"><option>maxFleet</option><option>maxBatch</option><option>budget</option><option>allowedRegions</option><option>defaultRegion</option><option>budgetName</option></select>
+      <input id="polVal" style="width:200px" placeholder="value (e.g. 6 or eastus2,centralus)" oninput="polHint()">
       <input id="polAttest" style="flex:1;min-width:260px" placeholder="type the attestation sentence">
       <button onclick="policySet()">Attest + Set</button>
     </div>
@@ -484,7 +484,7 @@ async function policyLoad(){
   const a=document.getElementById('attOut'); a.textContent='loading\u2026';
   try{
     const r=await (await fetch('/api/attestations')).json();
-    a.textContent=(r.rows||[]).map(x=>`${x.ts}  [${x.source}] ${x.action||''} ${x.key||''} ${x.from!==undefined?x.from+'\u2192'+(x.to!==undefined?x.to:x.value||''):(x.value||'')}  ${x.outcome||''} ${x.actor?('\u00b7 '+x.actor):''}`).join('\n')||'(no attested actions yet)';
+    a.textContent=(r.rows||[]).map(x=>`${x.ts}  [${x.source}] ${x.action||x.type||''} ${x.key||x.agent||''} ${x.from!==undefined?JSON.stringify(x.from)+'\u2192'+(x.to!==undefined?JSON.stringify(x.to):x.value||''):(x.value||'')}  ${x.outcome||''} ${x.actor?('\u00b7 '+x.actor):''}`).join('\n')||'(no attested actions yet)';
   }catch(err){ a.textContent='attestations failed: '+err; }
 }
 function polHint(){
