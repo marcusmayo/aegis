@@ -219,6 +219,37 @@ const server = http.createServer(async (req, res) => {
     res.setHeader('Content-Type', 'text/html');
     return res.end(fs.readFileSync(path.join(__dirname, 'index.html')));
   }
+  // --- Policy tab: attested governance gate (P2b). The fleetctl CLI is the ONLY
+  // gate -- Aegis adds no second validator, it surfaces the CLI's verdict verbatim.
+  if (req.url === '/api/policy/show' && req.method === 'GET') {
+    const r = runFleetctl(['policy', 'show']);
+    return sendJson(res, { ok: r.code === 0, out: panelClean(r.out) });
+  }
+  if (req.url === '/api/policy/set' && req.method === 'POST') {
+    const b = await readBody(req);
+    const key = String(b.key || '').trim();
+    const value = String(b.value || '').trim();
+    const attest = String(b.attest || '');
+    const r = runFleetctl(['policy', 'set', key, value, '--attest', attest]);
+    audit({ action: 'policy-set', key, value, outcome: r.code === 0 ? 'ok' : 'refused-or-error', via: 'panel' });
+    return sendJson(res, { ok: r.code === 0, code: r.code, out: panelClean(r.out) });
+  }
+  // Merged attestation timeline: Aegis actions + the fleetctl policy ledger, newest first.
+  if (req.url === '/api/attestations' && req.method === 'GET') {
+    const rows = [];
+    const pull = (file, sourceTag) => {
+      try {
+        for (const line of fs.readFileSync(file, 'utf8').trim().split('\n').slice(-40)) {
+          try { rows.push({ source: sourceTag, ...JSON.parse(line) }); } catch { /* skip bad line */ }
+        }
+      } catch { /* file absent is fine */ }
+    };
+    pull(AUDIT, 'aegis');
+    if (FLEET_IAC_ROOT) pull(path.join(FLEET_IAC_ROOT, 'provision', 'policy-audit.jsonl'), 'fleetctl');
+    rows.sort((a, b2) => String(b2.ts || '').localeCompare(String(a.ts || '')));
+    return sendJson(res, { ok: true, rows: rows.slice(0, 25) });
+  }
+
   // Provisioning plan (READ-ONLY): preview `up` + the caps/budget gate for a proposed agent.
   if (req.url === '/api/provision/plan' && req.method === 'POST') {
     const b = await readBody(req);

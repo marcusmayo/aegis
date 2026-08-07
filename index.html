@@ -52,6 +52,7 @@
   .tool-tab.prov{background:#c9a227;color:#111}
   .tool-tab.dec{background:#ef4444}
   .tool-tab.persona{background:#8b5cf6}
+  .tool-tab.policy{background:#10b981;color:#052e22}
   .tool-tab.active{outline:2px solid #fff;outline-offset:-3px}
   #toolPanel{position:fixed;left:40px;top:64px;z-index:60;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-left:none;border-radius:0 8px 8px 0;max-height:84vh;overflow-y:auto;box-shadow:6px 0 18px rgba(0,0,0,.45)}
   #toolPanel.open{width:440px;opacity:1;padding:14px}
@@ -105,6 +106,7 @@
   <button class="tool-tab adv"  onclick="openTool('adv')">&#9998; Advanced</button>
   <button class="tool-tab prov" onclick="openTool('prov')">&#9881; Provisioning</button>
   <button class="tool-tab dec"  onclick="openTool('dec')">&#9760; Decommission</button>
+  <button class="tool-tab policy" onclick="openTool('policy')">&#9878; Policy</button>
 </div>
 <div id="toolPanel">
   <div class="tool-content" id="tc-adv">
@@ -168,6 +170,22 @@
     <div class="tool-row"><button class="send" onclick="personaSave()">Save persona</button></div>
     <pre class="planout" id="personaOut"><span class="muted">persona status appears here&hellip;</span></pre>
   </div>
+  <div class="tool-content" id="tc-policy">
+    <h3 style="margin:4px 0 8px">Policy &middot; attested governance gate</h3>
+    <div class="muted" style="font-size:12px;margin-bottom:8px">Caps live in provision/aegis.policy.jsonc. Changing one requires typing the exact attestation sentence; the fleetctl CLI is the sole gate and every attempt &mdash; approved or refused &mdash; is ledgered.</div>
+    <button onclick="policyLoad()">Refresh policy + attestations</button>
+    <pre class="planout" id="policyOut"><span class="muted">policy appears here&hellip;</span></pre>
+    <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      <select id="polKey" onchange="polHint()"><option value="maxFleet">maxFleet</option><option value="budget">budget</option></select>
+      <input id="polVal" type="number" min="1" style="width:90px" placeholder="value" oninput="polHint()">
+      <input id="polAttest" style="flex:1;min-width:260px" placeholder="type the attestation sentence">
+      <button onclick="policySet()">Attest + Set</button>
+    </div>
+    <div class="muted" style="font-size:12px;margin-top:4px" id="polHintLine">required: I approve setting maxFleet to &lt;n&gt;</div>
+    <pre class="planout" id="policySetOut" style="max-height:160px"><span class="muted">set result appears here&hellip;</span></pre>
+    <h4 style="margin:10px 0 4px">Recent attested actions (merged)</h4>
+    <pre class="planout" id="attOut" style="max-height:200px"><span class="muted">timeline appears here&hellip;</span></pre>
+  
 </div>
 <script>
 let AGENTS = [], PALETTE = {};
@@ -381,6 +399,7 @@ function openTool(name){
   document.querySelectorAll('.tool-tab').forEach(t=>t.classList.remove('active'));
   document.querySelector('.tool-tab.'+name).classList.add('active');
   if(name==='persona') personaLoad();
+  if(name==='policy') policyLoad();
 }
 
 // Advanced API console: a curated dropdown of the agent's real endpoints, each with a
@@ -457,6 +476,32 @@ async function advSend(){
   $('#advOut').style.borderColor = (res.status>=200 && res.status<300) ? '#1c1c1c' : '#7f1d1d';
 }
 function toggleAdv(){ /* removed: replaced by openTool */ }
+
+async function policyLoad(){
+  const o=document.getElementById('policyOut'); o.textContent='loading\u2026';
+  try{ const r=await (await fetch('/api/policy/show')).json(); o.textContent=r.out||'(no output)'; }
+  catch(err){ o.textContent='policy show failed: '+err; }
+  const a=document.getElementById('attOut'); a.textContent='loading\u2026';
+  try{
+    const r=await (await fetch('/api/attestations')).json();
+    a.textContent=(r.rows||[]).map(x=>`${x.ts}  [${x.source}] ${x.action||''} ${x.key||''} ${x.from!==undefined?x.from+'\u2192'+(x.to!==undefined?x.to:x.value||''):(x.value||'')}  ${x.outcome||''} ${x.actor?('\u00b7 '+x.actor):''}`).join('\n')||'(no attested actions yet)';
+  }catch(err){ a.textContent='attestations failed: '+err; }
+}
+function polHint(){
+  const k=document.getElementById('polKey').value, v=document.getElementById('polVal').value||'<n>';
+  document.getElementById('polHintLine').textContent='required: I approve setting '+k+' to '+v;
+}
+async function policySet(){
+  const key=document.getElementById('polKey').value;
+  const value=document.getElementById('polVal').value;
+  const attest=document.getElementById('polAttest').value;
+  const o=document.getElementById('policySetOut'); o.textContent='running\u2026';
+  try{
+    const r=await (await fetch('/api/policy/set',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key,value,attest})})).json();
+    o.textContent=(r.ok?'OK\n':'REFUSED / ERROR\n')+(r.out||'');
+  }catch(err){ o.textContent='set failed: '+err; }
+  policyLoad();
+}
 
 function renderPalette(){
   const el=$('#palette'); if(el.children.length) return;
