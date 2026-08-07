@@ -11,6 +11,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { WebSocketServer, WebSocket } = require('ws');
+const cfcred = require('./cfcred.js');
 
 const PORT = parseInt(process.env.AEGIS_PORT || '7070', 10);
 const HOST = process.env.AEGIS_BIND || '127.0.0.1';
@@ -147,11 +148,9 @@ function operatorEmail() {
   catch { return (process.env.CF_OPERATOR_EMAIL || '').trim(); }
 }
 function cfEnvProblem() {
-  const id = process.env.CF_ACCOUNT_ID || '';
-  const tok = process.env.CF_API_TOKEN || '';
-  if (!id || /[<>\s]/.test(id)) return 'CF_ACCOUNT_ID missing or a placeholder — restart Aegis with the real 32-hex account id';
-  if (!tok || /[<>\s]/.test(tok)) return 'CF_API_TOKEN missing or a placeholder — restart Aegis with the real fleet-aegis-provisioning token';
-  return '';
+  // Delegates to cfcred: 'ok' only after Cloudflare's live tokens/verify said
+  // success + active at boot. Everything else carries the exact loud reason.
+  return cfcred.state.ok ? '' : cfcred.state.reason;
 }
 
 // Stream a long-running fleetctl command over the HTTP response (chunked text). extraEnv is
@@ -373,5 +372,8 @@ function relay(browserWs, agent) {
   browserWs.on('error', () => { if (agentWs) { try { agentWs.close(); } catch {} } });
 }
 
-server.listen(PORT, HOST, () =>
-  console.log(`Aegis on http://${HOST}:${PORT}  agents: ${loadAgents().map(a => a.name).join(', ') || '(none - fill aegis.config.json)'}  \u00b7  fleetctl: ${FLEET_IAC_ROOT || 'MISSING (set FLEET_IAC_ROOT or aegis.config.json fleetIacRoot)'}  \u00b7  cf: ${cfEnvProblem() ? 'NOT READY (' + cfEnvProblem() + ')' : 'ok'}`));
+let bootCfg = {};
+try { bootCfg = JSON.parse(fs.readFileSync(CFG, 'utf8')); } catch { /* loadAgents already warned */ }
+cfcred.resolve(bootCfg, () =>
+  server.listen(PORT, HOST, () =>
+    console.log(`Aegis on http://${HOST}:${PORT}  agents: ${loadAgents().map(a => a.name).join(', ') || '(none - fill aegis.config.json)'}  \u00b7  fleetctl: ${FLEET_IAC_ROOT || 'MISSING (set FLEET_IAC_ROOT or aegis.config.json fleetIacRoot)'}  \u00b7  cf: ${cfEnvProblem() ? 'NOT READY (' + cfEnvProblem() + ')' : 'ok \u00b7 token: ' + cfcred.state.source}`)));

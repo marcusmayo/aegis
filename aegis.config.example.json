@@ -1,4 +1,6 @@
 {
+  "cfAccountId": "PASTE-32-hex-account-id",
+  "cfVaultName": "kv-keelpm-aegis",
   "agents": [
     {
       "name": "heimdall",
