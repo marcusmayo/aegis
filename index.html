@@ -152,20 +152,16 @@
   <div class="tool-content" id="tc-dec">
     <h3 style="color:#ef4444">Decommission &middot; preview <span class="muted">(read-only)</span></h3>
     <div class="tool-row"><span class="muted">agent</span>
-      <input id="dcName" placeholder="existing agent name">
+      <input id="dcName" placeholder="existing agent name" oninput="dcAttestCheck()">
       <button class="send" onclick="decommissionPlan()">Preview teardown</button>
     </div>
-    <div class="tool-row" style="margin-top:8px">
-      <input id="dcAttest" style="flex:1;min-width:260px" placeholder="type: I approve decommissioning &lt;name&gt;">
-      <button class="send" style="background:#ef4444" onclick="decommissionGo()">Execute teardown (--go)</button>
-    </div>
-    <div class="muted" style="font-size:12px" id="dcHint">attestation required — the phrase names the agent; every attempt is ledgered</div>
     <pre class="planout" id="decOut"><span class="muted">teardown plan appears here&hellip;</span></pre>
-    <div class="muted" style="font-size:11px;margin:8px 0 4px">To EXECUTE (destructive): type <b style="color:#ef4444">decommission &lt;name&gt;</b> below, then Execute. Aegis runs the teardown &mdash; no CLI.</div>
+    <div class="muted" style="font-size:11px;margin:8px 0 4px">To EXECUTE (destructive): type the attestation sentence below, then Execute. Aegis runs the teardown &mdash; no CLI; every attempt &mdash; approved or refused &mdash; is ledgered.</div>
     <div class="tool-row">
-      <input id="dcAttest" placeholder="decommission <name>" oninput="dcAttestCheck()" style="flex:1;min-width:180px">
-      <button id="dcExec" class="dec-go" onclick="decommissionGo()" disabled>Execute teardown</button>
+      <input id="dcAttest" placeholder="I approve decommissioning <name>" oninput="dcAttestCheck()" style="flex:1;min-width:260px">
+      <button id="dcExec" class="send" style="background:#ef4444" onclick="decommissionGo()" disabled>Execute teardown (--go)</button>
     </div>
+    <div class="muted" style="font-size:12px" id="dcHint">type exactly: I approve decommissioning &lt;name&gt;</div>
   </div>
   <div class="tool-content" id="tc-persona">
     <h3 style="color:#a78bfa">Persona <span class="muted">&mdash; <b id="personaTarget">&mdash;</b></span></h3>
@@ -482,20 +478,7 @@ async function advSend(){
 }
 function toggleAdv(){ /* removed: replaced by openTool */ }
 
-async function decommissionGo(){
-  const name=(document.getElementById('dcName').value||'').trim();
-  const attest=document.getElementById('dcAttest').value;
-  const o=document.getElementById('decOut');
-  if(!name){ o.textContent='enter the agent name first'; return; }
-  o.textContent='';
-  try{
-    const resp=await fetch('/api/decommission/go',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,attest})});
-    if(!resp.body){ o.textContent=await resp.text(); return; }
-    const rd=resp.body.getReader(); const dec=new TextDecoder();
-    for(;;){ const {done,value}=await rd.read(); if(done) break; o.textContent+=dec.decode(value,{stream:true}); o.scrollTop=o.scrollHeight; }
-  }catch(err){ o.textContent+='\n[stream error] '+err; }
-  document.getElementById('dcAttest').value='';
-}
+
 
 async function policyLoad(){
   const o=document.getElementById('policyOut'); o.textContent='loading\u2026';
@@ -678,24 +661,28 @@ function decommissionPlan(){
 }
 function dcAttestCheck(){
   const name = $('#dcName').value.trim();
-  const ok = name && $('#dcAttest').value.trim() === ('decommission ' + name);
-  $('#dcExec').disabled = !ok;
+  const req = 'I approve decommissioning ' + (name || '<name>');
+  $('#dcHint').textContent = 'type exactly: ' + req;
+  $('#dcExec').disabled = !(name && $('#dcAttest').value.trim() === req);
 }
 async function decommissionGo(){
   const name = $('#dcName').value.trim();
   const attest = $('#dcAttest').value.trim();
-  if(attest !== ('decommission ' + name)){ $('#decOut').textContent = 'type exactly:  decommission ' + name; return; }
-  const btn = $('#dcExec'); btn.disabled = true;
-  const out = $('#decOut'); out.textContent = 'executing teardown\u2026 (this can take a few minutes)\n\n';
+  const required = 'I approve decommissioning ' + name;
+  const out = $('#decOut'); const btn = $('#dcExec');
+  if(attest !== required){ out.textContent = 'type exactly:  ' + required; return; }
+  btn.disabled = true;
+  out.textContent = 'executing teardown\u2026 (this can take a few minutes)\n\n';
   try{
     const r = await fetch('/api/decommission/go', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name, attest }) });
     const ct = r.headers.get('content-type') || '';
-    if(!r.ok && ct.includes('json')){ const j = await r.json(); out.textContent = 'blocked: ' + (j.error || r.status); btn.disabled = false; return; }
-    const reader = r.body.getReader(); const dec = new TextDecoder(); out.textContent = '';
-    while(true){ const { done, value } = await reader.read(); if(done) break; out.textContent += dec.decode(value, { stream:true }); out.scrollTop = out.scrollHeight; }
+    if(!r.ok && ct.includes('json')){ const j = await r.json(); out.textContent = j.out || j.error || ('HTTP ' + r.status); }
+    else {
+      const reader = r.body.getReader(); const dec = new TextDecoder(); out.textContent = '';
+      while(true){ const { done, value } = await reader.read(); if(done) break; out.textContent += dec.decode(value, { stream:true }); out.scrollTop = out.scrollHeight; }
+    }
   }catch(e){ out.textContent += '\nrequest failed: ' + e.message; }
-  $('#dcAttest').value = ''; btn.disabled = true;
-  setTimeout(loadFleet, 600); // refresh — the agent should now be gone
+  finally{ $('#dcAttest').value = ''; dcAttestCheck(); setTimeout(loadFleet, 600); }
 }
 
 // Keep each agent's model dropdown in sync with changes made elsewhere (e.g. the agent's
