@@ -22,7 +22,7 @@ const { spawnSync } = require('child_process');
 const state = { ok: false, source: '', reason: 'credentials not resolved yet (boot in progress)' };
 
 function az(args) {
-  const r = spawnSync('az', args, { encoding: 'utf8', timeout: 30000, shell: process.platform === 'win32' });
+  const r = spawnSync(process.platform === 'win32' ? 'az.cmd' : 'az', args, { encoding: 'utf8', timeout: 30000 });
   return { out: (r.stdout || '').trim(), err: (r.stderr || '').trim().split('\n')[0] || String(r.error || '').split('\n')[0] };
 }
 
