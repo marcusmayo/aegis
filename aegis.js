@@ -304,8 +304,12 @@ const server = http.createServer(async (req, res) => {
     const name = String(b.name || '').trim();
     const attest = String(b.attest || '').trim();
     if (!NAME_RE.test(name)) return sendJson(res, { ok: false, error: 'invalid agent name' }, 400);
-    const required = 'provision ' + name;
-    if (attest !== required) return sendJson(res, { ok: false, error: 'attestation does not match — type exactly:  ' + required }, 403);
+    const required = 'I approve provisioning ' + name;
+    const actor = (os.userInfo().username || 'unknown');
+    if (attest !== required) {
+      audit({ action: 'provision-go', name, actor, phrase: attest, outcome: 'refused: attestation mismatch' });
+      return sendJson(res, { ok: false, error: 'REFUSED — attestation must read exactly:  ' + required }, 403);
+    }
     const cfp = cfEnvProblem();
     if (cfp) return sendJson(res, { ok: false, error: cfp }, 400);
     const opEmail = operatorEmail();
@@ -313,8 +317,8 @@ const server = http.createServer(async (req, res) => {
     if (!FLEET_IAC_ROOT || !fs.existsSync(fleetctlPath())) return sendJson(res, { ok: false, error: 'FLEET_IAC_ROOT not set / fleetctl not found' }, 500);
     const persisted = path.join(FLEET_IAC_ROOT, 'agents', `${name}.agent.jsonc`);
     if (!fs.existsSync(persisted)) return sendJson(res, { ok: false, error: `no agents/${name}.agent.jsonc — write the contract first` }, 400);
-    audit({ action: 'provision-go', name, phase: 'start' });
-    return streamFleetctl(res, ['up', persisted, '--go'], null, (code) => audit({ action: 'provision-go', name, phase: 'done', code }));
+    audit({ action: 'provision-go', name, actor, phrase: attest, outcome: 'started' });
+    return streamFleetctl(res, ['up', persisted, '--go'], null, (code) => audit({ action: 'provision-go', name, actor, phrase: attest, outcome: code === 0 ? 'done' : 'exit ' + code }));
   }
   // Decommission plan (READ-ONLY): discover which surfaces an agent still occupies.
   if (req.url === '/api/decommission/plan' && req.method === 'POST') {

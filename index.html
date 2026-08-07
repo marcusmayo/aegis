@@ -137,11 +137,14 @@
     </div>
     <div class="tool-row"><button class="send" onclick="provisionPlan()">Preview provision</button></div>
     <pre class="planout" id="provOut"><span class="muted">plan output appears here&hellip;</span></pre>
-    <div class="muted" style="font-size:11px;margin:8px 0 4px">To EXECUTE (creates cloud resources): 1) Write contract &rarr; 2) type <b style="color:#c9a227">provision &lt;name&gt;</b> and Execute &rarr; 3) once the stream shows the Key Vault created (~2 min in), <b>Seed keys from a SECOND Aegis tab</b> &mdash; the vault is created by up, and bootstrap fetches the keys near the end of the build (~8&ndash;10 min), so mid-build seeding is the correct window. fleetctl's preflight (caps &middot; budget &middot; placeholders &middot; operator email) stays the fail-closed gate &mdash; a failing check aborts with nothing created.</div>
+    <div class="muted" style="font-size:11px;margin:8px 0 4px">To EXECUTE (creates cloud resources): 1) Write contract &rarr; 2) type the attestation sentence (<b style="color:#c9a227">I approve provisioning &lt;name&gt;</b>) and Execute &rarr; 3) once the stream shows the Key Vault created (~2 min in), <b>Seed keys from a SECOND Aegis tab</b> &mdash; the vault is created by up, and bootstrap fetches the keys near the end of the build (~8&ndash;10 min), so mid-build seeding is the correct window. fleetctl's preflight (caps &middot; budget &middot; placeholders &middot; operator email) stays the fail-closed gate &mdash; a failing check aborts with nothing created.</div>
     <div class="tool-row"><button class="send" onclick="provisionWriteContract()">1. Write contract</button><button class="send" onclick="provisionPlanPersisted()">Plan (real contract)</button></div>
     <div class="tool-row">
-      <input id="pvAttest" placeholder="provision <name>" oninput="pvAttestCheck()" style="flex:1;min-width:180px">
+      <input id="pvAttest" placeholder="I approve provisioning <name>" oninput="pvAttestCheck()" style="flex:1;min-width:260px">
       <button id="pvExec" class="send" onclick="provisionGo()" disabled>2. Execute up --go</button>
+    </div>
+    <div class="muted" style="font-size:12px" id="pvHint">type exactly: I approve provisioning &lt;name&gt;</div>
+    <div class="tool-row" style="display:none">
     </div>
     <div class="tool-row"><span class="muted">keys</span>
       <input id="pvAnth" type="password" placeholder="sk-ant-&hellip; (Anthropic)" style="flex:1;min-width:150px">
@@ -625,7 +628,9 @@ function provisionPlanPersisted(){
 }
 function pvAttestCheck(){
   const name = $('#pvName').value.trim();
-  $('#pvExec').disabled = !(name && $('#pvAttest').value.trim() === ('provision ' + name));
+  const req = 'I approve provisioning ' + (name || '<name>');
+  const h = document.getElementById('pvHint'); if(h) h.textContent = 'type exactly: ' + req;
+  $('#pvExec').disabled = !(name && $('#pvAttest').value.trim() === req);
 }
 // Shared chunked-stream reader (same pattern as decommissionGo).
 async function streamPost(url, body, outId, btn){
