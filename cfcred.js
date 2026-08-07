@@ -22,7 +22,11 @@ const { spawnSync } = require('child_process');
 const state = { ok: false, source: '', reason: 'credentials not resolved yet (boot in progress)' };
 
 function az(args) {
-  const r = spawnSync(process.platform === 'win32' ? 'az.cmd' : 'az', args, { encoding: 'utf8', timeout: 30000 });
+  // Windows: single command string + shell (Node >=20.12 EINVALs .cmd without a
+  // shell; args-array+shell is DEP0190). Every arg here is static or charset-gated.
+  const r = process.platform === 'win32'
+    ? spawnSync('az ' + args.join(' '), { shell: true, encoding: 'utf8', timeout: 30000 })
+    : spawnSync('az', args, { encoding: 'utf8', timeout: 30000 });
   return { out: (r.stdout || '').trim(), err: (r.stderr || '').trim().split('\n')[0] || String(r.error || '').split('\n')[0] };
 }
 
@@ -63,6 +67,10 @@ function resolve(config, cb) {
     const vault = (cfg.cfVaultName || '').trim();
     if (!vault) {
       state.ok = false; state.reason = 'CF_API_TOKEN not in env and no "cfVaultName" in aegis.config.json';
+      return cb(state);
+    }
+    if (!/^[a-zA-Z0-9-]{3,24}$/.test(vault)) {
+      state.ok = false; state.reason = 'cfVaultName "' + vault + '" fails the Key Vault charset (a-zA-Z0-9-, 3-24)';
       return cb(state);
     }
     const r = az(['keyvault', 'secret', 'show', '--vault-name', vault, '--name', 'cf-api-token', '--query', 'value', '-o', 'tsv']);
