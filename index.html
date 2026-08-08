@@ -23,6 +23,7 @@
   .fleet.mini{display:flex;flex-wrap:wrap;gap:8px}
   .fleet.mini .card{padding:6px 12px;border-radius:16px}
   .fleet.mini .card .row{display:none}
+  .fleet.mini .card .mdlrow{display:flex}   /* model stays visible in the collapsed card, inside its frame */
   .card .ctl{display:inline-flex;align-items:center;gap:6px;font-size:var(--uifs,12px);font-family:monospace;color:var(--dim)}
   .fleet.mini .top .muted{display:none}
   .minipill{display:none;font-size:calc(var(--uifs,12px) - 1px);font-family:monospace;border:1px solid var(--line);border-radius:10px;padding:0 7px;color:var(--dim)}
@@ -279,7 +280,7 @@ async function loadFleet(){
       + '<span class="name" id="nm-'+a.name+'">'+a.name+'</span>'
       + '<span class="badge">'+a.profile+'</span>'
       + '<span class="minipill" id="minipend-'+a.name+'"></span></div>'
-      + '<div class="row"><span class="ctl" id="mdl-'+a.name+'"></span></div>'
+      + '<div class="row mdlrow"><span class="ctl" id="mdl-'+a.name+'"></span></div>'
       + '<div id="ctl-'+a.name+'" style="margin-top:4px"><span id="prot-'+a.name+'"></span><span class="ctl" id="web-'+a.name+'" style="margin-left:12px"></span><div id="protformslot-'+a.name+'"></div></div>'
       + '<div class="row" id="rc-'+a.name+'">probing&hellip;</div>'
       + '<div class="row" id="rx-'+a.name+'"></div>'
