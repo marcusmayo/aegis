@@ -24,6 +24,9 @@
   .fleet.mini .card{padding:6px 12px;border-radius:16px}
   .fleet.mini .card .row{display:none}
   .fleet.mini .card .mdlrow{display:flex}   /* model stays visible in the collapsed card, inside its frame */
+  .card .mdlrow{min-width:0}
+  .card .mdlrow .ctl{min-width:0;flex:1 1 auto;display:flex;align-items:center;gap:8px}
+  .card .mdlrow .mdl-sel{flex:1 1 auto;min-width:0;max-width:100%}   /* select clamps to the card's inner width, never past the border */
   .card .ctl{display:inline-flex;align-items:center;gap:6px;font-size:var(--uifs,12px);font-family:monospace;color:var(--dim)}
   .fleet.mini .top .muted{display:none}
   .minipill{display:none;font-size:calc(var(--uifs,12px) - 1px);font-family:monospace;border:1px solid var(--line);border-radius:10px;padding:0 7px;color:var(--dim)}
