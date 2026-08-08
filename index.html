@@ -288,6 +288,9 @@ async function loadFleet(){
       + '<span class="minipill" id="minipend-'+a.name+'"></span></div>'
       + '<div class="row mdlrow"><span class="ctl" id="mdl-'+a.name+'"></span></div>'
       + '<div id="ctl-'+a.name+'" style="margin-top:4px"><span id="prot-'+a.name+'"></span><span class="ctl" id="web-'+a.name+'" style="margin-left:12px"></span><div id="protformslot-'+a.name+'"></div></div>'
+      + '<div class="row"><span class="muted">import:</span><input type="file" id="impf-'+a.name+'" style="max-width:170px;min-width:0"><button class="webtog off" onclick="impStage(\''+a.name+'\')" title="Upload to this agent\u2019s staging area">Stage</button><button class="webtog off" onclick="impList(\''+a.name+'\')" title="List staged files; Process hands each to this agent\u2019s pipeline dir">Staged</button></div>'
+      + '<div class="row" id="impl-'+a.name+'" style="display:none"></div>'
+      + (a.profile==='keel' ? '<div class="row"><span class="muted">exports:</span><a href="#" onclick="csExport(\''+a.name+'\',\'/export\');return false" style="color:#8ab4f8">portfolio</a><a href="#" onclick="csExport(\''+a.name+'\',\'/export-multisource\');return false" style="color:#8ab4f8">multisource</a><a href="#" onclick="csExport(\''+a.name+'\',\'/export-reconcile\');return false" style="color:#8ab4f8">reconcile</a></div>' : '')
       + '<div class="row" id="rc-'+a.name+'">probing&hellip;</div>'
       + '<div class="row" id="rx-'+a.name+'"></div>'
       + '<div class="row"><a class="agent-link" href="https://'+a.host+'" target="_blank" rel="noopener">&#8599; open '+a.host+'</a></div>';
@@ -374,33 +377,32 @@ function cheatToggle(){
 function esc(x){ return String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 async function buildCheats(){
   const b=document.getElementById('cheatBody'); if(!b)return;
-  let h='<b>ATTESTATION GRAMMAR</b>\n  I approve provisioning &lt;name&gt; \u00b7 I approve decommissioning &lt;name&gt;\n  I approve protecting &lt;name&gt; \u00b7 I approve unprotecting &lt;name&gt;\n  I approve setting &lt;key&gt; to &lt;value&gt;\n\n<b>FLEETCTL</b>\n  backup init | list &lt;agent&gt; | snapshot &lt;agent&gt; \u00b7 restore &lt;agent&gt;\n  policy show [--json] \u00b7 protect|unprotect &lt;name&gt; \u00b7 check &lt;contract&gt; --live\n';
-  for(const a of AGENTS){ h+='\n<b>'+esc(a.name).toUpperCase()+'</b> <span class="muted">('+esc(a.profile)+')</span><div id="cs-'+esc(a.name)+'" style="margin:4px 0 2px 10px">loading\u2026</div>'; }
+  let h='<b>ATTESTATION GRAMMAR</b>\n  I approve provisioning &lt;name&gt; \u00b7 I approve decommissioning &lt;name&gt;\n  I approve protecting &lt;name&gt; \u00b7 I approve unprotecting &lt;name&gt;\n  I approve setting &lt;key&gt; to &lt;value&gt;\n\n<b>FLEETCTL</b>\n  backup init | list &lt;agent&gt; | snapshot &lt;agent&gt; \u00b7 restore &lt;agent&gt;\n  policy show [--json] \u00b7 protect|unprotect &lt;name&gt; \u00b7 check &lt;contract&gt; --live\n\n<span class="muted">Actions live on each agent card (import on every card; exports on keel cards).\nHeavy skill runs happen on the agent\u2019s own page \u2014 use the card\u2019s open link.</span>\n';
+  const profiles=[...new Set(AGENTS.map(a=>a.profile))];
+  for(const P of profiles){ h+='\n<b>'+esc(P).toUpperCase()+' PROFILE</b><div id="csp-'+esc(P)+'" style="margin:4px 0 2px 10px">loading\u2026</div>'; }
   b.innerHTML=h;
-  for(const a of AGENTS) fillAgentCheats(a);
+  for(const P of profiles) fillProfileCheats(P);
 }
-async function fillAgentCheats(a){
-  const el=document.getElementById('cs-'+a.name); if(!el)return;
-  let h='';
-  // skills: listed by the agent itself; click a row to run it (result goes to the console log)
-  try{
-    const r=await api(a.name,'GET','/skills');
-    if(r.status===200){ const j=JSON.parse(r.body);
-      h+='<u>skills</u> <span class="muted">(click to run \u2192 result in the console)</span><br>';
-      h+=(j.skills||[]).map(sk=>'<a href="#" onclick="csRun(\''+a.name+'\',\''+sk.method+'\',\''+esc(sk.route)+'\');return false" style="color:#8ab4f8">'+esc(sk.method)+' '+esc(sk.route)+'</a>'+(sk.summary?(' <span class="muted">\u2014 '+esc(sk.summary)+'</span>'):'')).join('<br>')||'(none declared)';
-      h+='<br>';
-    } else if(r.status===404){ h+='<u>skills</u> <span class="muted">\u2014 list lands at this agent\u2019s rebuild (its image predates GET /skills)</span><br>'; }
-    else { h+='<u>skills</u> <span class="muted">\u2014 agent unreachable ('+r.status+')</span><br>'; }
-  }catch(e){ h+='<u>skills</u> <span class="muted">\u2014 unreachable</span><br>'; }
-  if(a.profile==='keel'){
-    h+='<u>exports</u> <span class="muted">(xlsx via the Aegis proxy)</span><br>'+['/export','/export-multisource','/export-reconcile'].map(x=>'<a href="#" onclick="csExport(\''+a.name+'\',\''+x+'\');return false" style="color:#8ab4f8">'+x+'</a>').join(' \u00b7 ')+'<br>';
+async function fillProfileCheats(P){
+  const el=document.getElementById('csp-'+P); if(!el)return;
+  const members=AGENTS.filter(a=>a.profile===P);
+  let h='<span class="muted">instances: '+members.map(a=>esc(a.name)).join(', ')+'</span><br>';
+  let skillsHtml=null, dest=null, sawLegacy=false;
+  for(const a of members){
+    try{
+      const r=await api(a.name,'GET','/skills');
+      if(r.status===200 && skillsHtml===null){ const j=JSON.parse(r.body);
+        skillsHtml=((j.skills||[]).map(sk=>'  '+esc(sk.method)+' '+esc(sk.route)+(sk.summary?(' \u2014 '+esc(sk.summary)):'')).join('<br>')||'  (none declared)')+'<br><span class="muted">  listed from '+esc(a.name)+' \u00b7 run these on the agent\u2019s own page</span>';
+      } else if(r.status===404){ sawLegacy=true; }
+      if(dest===null){ const g=await api(a.name,'GET','/files/staged'); if(g.status===200){ try{ dest=JSON.parse(g.body).dest; }catch(e){} } }
+    }catch(e){ /* unreachable member */ }
   }
-  if(a.profile==='castor'){ h+='<u>queue</u> <span class="muted">\u2014 click the pend pill on the card to dump GET /pending</span><br>'; }
-  h+='<u>staged files</u> <span class="muted">\u2014 upload \u2192 staging \u2192 Process hands the file to this agent\u2019s pipeline dir</span><br>'
-    +'<input type="file" id="csf-'+a.name+'" style="max-width:200px"> <button class="send" onclick="csStage(\''+a.name+'\')">Stage</button> <button class="send" onclick="csStagedList(\''+a.name+'\')">Show staged</button><div id="csl-'+a.name+'" style="margin-left:10px"></div>';
+  h+='<u>skills</u><br>'+(skillsHtml!==null?skillsHtml:('<span class="muted">  '+(sawLegacy?'list lands when a '+esc(P)+' agent is rebuilt on the new core':'start a '+esc(P)+' agent to list live')+'</span>'))+'<br>';
+  if(P==='keel') h+='<u>exports</u> <span class="muted">\u2014 GET /export \u00b7 /export-multisource \u00b7 /export-reconcile (download links on each keel card)</span><br>';
+  if(P==='castor') h+='<u>queue</u> <span class="muted">\u2014 GET /pending; click the pend pill on a card to dump it</span><br>';
+  h+='<u>import</u> <span class="muted">\u2014 every card: choose file \u2192 Stage \u2192 Staged \u2192 Process moves it to '+(dest?esc(dest):'the profile\u2019s stage_dest')+' and the pipeline takes over</span>';
   el.innerHTML=h;
 }
-async function csRun(agent,method,route){ const r=await api(agent,method,route,method==='POST'?{}:null); log(agent,method,route,r); }
 async function csExport(agent,p){
   try{
     const r=await fetch('/api/fetch/'+encodeURIComponent(agent)+'?path='+encodeURIComponent(p));
@@ -410,25 +412,27 @@ async function csExport(agent,p){
     log(agent,'GET',p,{status:200,body:'downloaded '+aEl.download+' ('+blob.size+' bytes)'});
   }catch(e){ log(agent,'GET',p,{status:0,body:String(e)}); }
 }
-function csStage(agent){
-  const f=(document.getElementById('csf-'+agent).files||[])[0]; if(!f){ alert('choose a file first'); return; }
+function impStage(agent){
+  const f=(document.getElementById('impf-'+agent).files||[])[0]; if(!f){ alert('choose a file first'); return; }
   const rd=new FileReader();
   rd.onload=async ()=>{ const b64=String(rd.result).split(',')[1]||'';
     const r=await api(agent,'POST','/files/stage',{name:f.name,dataBase64:b64});
     log(agent,'POST','/files/stage '+f.name,r);
-    if(r.status===404) log(agent,'note','',{status:0,body:'this agent predates the staged-file lane \u2014 lands at its rebuild'});
-    else csStagedList(agent);
+    if(r.status===404) log(agent,'note','',{status:0,body:'this agent predates the import lane \u2014 lands at its rebuild'});
+    else impList(agent);
   };
   rd.readAsDataURL(f);
 }
-async function csStagedList(agent){
-  const r=await api(agent,'GET','/files/staged'); const el=document.getElementById('csl-'+agent); if(!el)return;
-  if(r.status!==200){ el.innerHTML='<span class="muted">'+(r.status===404?'lane lands at rebuild':'unreachable ('+r.status+')')+'</span>'; return; }
+async function impList(agent){
+  const r=await api(agent,'GET','/files/staged'); const el=document.getElementById('impl-'+agent); if(!el)return;
+  el.style.display='flex';
+  if(r.status!==200){ el.innerHTML='<span class="muted">'+(r.status===404?'import lane lands at this agent\u2019s rebuild':'unreachable ('+r.status+')')+'</span>'; return; }
   try{ const j=JSON.parse(r.body);
-    el.innerHTML=((j.files||[]).map(x=>esc(x.name)+' ('+x.bytes+'b) <button class="send" onclick="csProc(\''+agent+'\',\''+esc(x.name).replace(/'/g,'')+'\')">Process \u2192 '+esc(j.dest)+'</button>').join('<br>'))||'<span class="muted">(nothing staged)</span>';
+    el.innerHTML=((j.files||[]).map(x=>esc(x.name)+' ('+x.bytes+'b) <button class="webtog off" onclick="impProc(\''+agent+'\',\''+esc(x.name).replace(/'/g,'')+'\')">Process \u2192 '+esc(j.dest)+'</button>').join('<br>'))||'<span class="muted">(nothing staged)</span>';
   }catch(e){ el.textContent='parse error'; }
 }
-async function csProc(agent,n){ const r=await api(agent,'POST','/files/process',{name:n}); log(agent,'POST','/files/process '+n,r); csStagedList(agent); }
+async function impProc(agent,n){ const r=await api(agent,'POST','/files/process',{name:n}); log(agent,'POST','/files/process '+n,r); impList(agent); }
+
 async function loadWeb(a){
   const el = $('#web-'+a.name); if(!el) return;
   const r = await api(a.name,'GET','/web-access');
