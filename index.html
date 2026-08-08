@@ -328,8 +328,8 @@ async function probe(a){
   loadProtList();
   // Pending-queue visibility (count only -- REVIEW stays in the agent's own webchat, per the
   // control-plane/agent domain division). Generic: any agent exposing GET /pending shows a live
-  // count (castor's vision intake returns {groups:[...]}); keel has no pending endpoint today,
-  // so its row stays empty until the doc-queue backlog item lands. The old 'model: ok' hint is
+  // count (castor: {groups:{state:[...]}} summed across groups; keel: {items:[...]} length).
+  // The old 'model: ok' hint is
   // gone -- the live model dropdown above already carries that signal.
   if(ok){
     const rx=$('#rx-'+a.name);
@@ -337,7 +337,7 @@ async function probe(a){
     if(pending.status===200){
       try{
         const p=JSON.parse(pending.body);
-        const n=Array.isArray(p.groups)?p.groups.length:(Array.isArray(p)?p.length:(Array.isArray(p.items)?p.items.length:(p.count??0)));
+        const n=Array.isArray(p.items)?p.items.length:(p.groups&&typeof p.groups==='object'?Object.values(p.groups).reduce((s,v)=>s+(Array.isArray(v)?v.length:0),0):(Array.isArray(p)?p.length:(p.count??0)));
         rx.textContent='queue: '+n;
         const mp=$('#minipend-'+a.name); if(mp){ mp.textContent='queue '+n; mp.style.display=n>0?'':'none'; mp.style.cursor='pointer'; mp.title='click: dump the pending queue to the console'; mp.onclick=async()=>{ const r=await api(a.name,'GET','/pending'); log(a.name,'GET','/pending',r); }; }
       }catch(e){ rx.textContent=''; }
