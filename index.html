@@ -93,6 +93,8 @@
   .mini-host{color:#6ea8ff;text-decoration:none;font-size:calc(var(--uifs,12px) - 1px);font-family:monospace;text-transform:none;letter-spacing:normal;margin-left:8px;font-weight:400}
   .agent-link:hover{text-decoration:underline}
   button:disabled{opacity:.35;cursor:not-allowed;filter:saturate(.4)}
+  #log{max-height:56vh;overflow:auto;max-width:100%}
+  #log div{white-space:pre-wrap;overflow-wrap:anywhere}
 </style></head><body>
 <header>
   <h1>&#9678; Aegis</h1><span class="sub">fleet control plane &middot; local</span>
@@ -647,7 +649,7 @@ async function sendRaw(){
 (function(){
   const host = document.querySelector('.log') ? document.querySelector('.log').parentNode : document.body;
   const bar = document.createElement('div');
-  bar.style.cssText = 'display:flex;gap:8px;margin:10px 0';
+  bar.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin:10px 0;width:100%;max-width:100%';
   bar.innerHTML =
     '<input id="prompt" placeholder="prompt to selected agent (uses the Target above)" '
     + 'style="flex:1;min-width:240px;background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:6px;padding:7px 10px;font-family:monospace;font-size:var(--uifs,12px)">'
@@ -681,16 +683,14 @@ function chatBubble(agent, prompt){
   return { meta: head.querySelector('.meta'), body: body };
 }
 
-let chatBusy=false;
+let lastChatSend=0;
 function chatSend(){
-  if(chatBusy) return;                       // one send at a time -> no duplicate Q: bubble from an Enter+click or an impatient re-send
+  if(Date.now()-lastChatSend<400) return;    // debounce Enter+click double-fire; sends are otherwise CONCURRENT (one WS per send, any target, answers interleave tagged)
+  lastChatSend=Date.now();
   const agent = document.getElementById('target').value;
   const p = document.getElementById('prompt').value.trim();
   if(!agent){ alert('pick a Target agent'); return; }
   if(!p) return;
-  chatBusy=true;
-  const btn=document.getElementById('chatSend'); if(btn) btn.disabled=true;
-  const release=function(){ chatBusy=false; if(btn) btn.disabled=false; };
   document.getElementById('prompt').value = '';
   const ui = chatBubble(agent, p);
   ui.meta.textContent = 'connecting...';
@@ -705,7 +705,7 @@ function chatSend(){
     else if(f.type==='done'){ ui.meta.textContent = 'done'; try{ ws.close(); }catch(e){} }
   };
   ws.onerror = function(){ ui.meta.textContent = 'ws error'; };
-  ws.onclose = function(){ if(ui.meta.textContent==='sent'||ui.meta.textContent==='thinking...') ui.meta.textContent='closed'; release(); };
+  ws.onclose = function(){ if(ui.meta.textContent==='sent'||ui.meta.textContent==='thinking...') ui.meta.textContent='closed'; };
 }
 
 async function planPost(url, body, outId){
