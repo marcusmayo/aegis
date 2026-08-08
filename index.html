@@ -25,9 +25,11 @@
   .fleet.mini .card .row{display:none}
   .fleet.mini .card .mdlrow{display:flex}   /* model stays visible in the collapsed card, inside its frame */
   .card .mdlrow{min-width:0}
-  .card .mdlrow .ctl{min-width:0;flex:1 1 auto;display:flex;align-items:center;gap:8px}
-  .card .mdlrow .ctl{max-width:none;overflow:visible}
-  .card .mdlrow .mdl-sel{flex:0 1 auto;width:max-content;min-width:0;max-width:100%}   /* full model label always shown; still never past the border */
+  .card .mdlrow .ctl{min-width:0;flex:1 1 auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;max-width:none}
+  .card .mdlrow .mdl-sel{flex:1 1 240px;width:auto;min-width:0;max-width:100%}
+  /* Select fills all remaining row width (flex-basis growth, cannot be content-shrunk);
+     if the row is ever too tight it wraps to its own full-width line — the entire
+     model + version label is always visible, and never past the card border. */
   .card .ctl{display:inline-flex;align-items:center;gap:6px;font-size:var(--uifs,12px);font-family:monospace;color:var(--dim)}
   .fleet.mini .top .muted{display:none}
   .minipill{display:none;font-size:calc(var(--uifs,12px) - 1px);font-family:monospace;border:1px solid var(--line);border-radius:10px;padding:0 7px;color:var(--dim)}
