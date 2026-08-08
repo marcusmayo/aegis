@@ -295,9 +295,9 @@ async function loadFleet(){
       + '<div class="row mdlrow"><span class="ctl" id="mdl-'+a.name+'"></span></div>'
       + '<div id="ctl-'+a.name+'" style="margin-top:6px"><span id="prot-'+a.name+'"></span><span class="ctl" id="web-'+a.name+'" style="margin-left:12px"></span><div id="protformslot-'+a.name+'"></div></div>'
       + '<div class="row sect" style="min-width:0"><span class="lbl">import:</span><input type="file" id="impf-'+a.name+'" class="file" style="flex:1 1 0%;width:0;min-width:0"></div>'
-      + '<div class="row indent"><button class="webtog off" onclick="impStage(\''+a.name+'\')" title="Upload the chosen file to this agent\u2019s staging area">Stage</button><button class="webtog off" onclick="impList(\''+a.name+'\')" title="List staged uploads; Process hands each to this agent\u2019s pipeline dir">Staged</button><span class="muted">uploads awaiting Process \u2014 not the intake queue</span></div>'
+      + '<div class="row indent"><button class="webtog off" onclick="impStage(\''+a.name+'\')" title="Upload the chosen file to this agent\u2019s staging area">Stage</button><button class="webtog off" onclick="impList(\''+a.name+'\')" title="List staged uploads \u2014 files waiting for you to click Process (distinct from the intake queue)">Staged</button></div>'
       + '<div class="row indent" id="impl-'+a.name+'" style="display:none;flex-wrap:wrap"></div>'
-      + (a.profile==='keel' ? '<div class="row"><span class="lbl">exports:</span><span style="display:flex;gap:12px;flex-wrap:wrap;min-width:0"><a href="#" onclick="csExport(\''+a.name+'\',\'/export\');return false" style="color:#8ab4f8">portfolio</a><a href="#" onclick="csExport(\''+a.name+'\',\'/export-multisource\');return false" style="color:#8ab4f8">multisource</a><a href="#" onclick="csExport(\''+a.name+'\',\'/export-reconcile\');return false" style="color:#8ab4f8">reconcile</a></span></div>' : '')
+      + (a.profile==='keel' ? '<div class="row"><span class="lbl">exports:</span><span style="display:flex;gap:14px;flex-wrap:wrap;min-width:0;align-items:center"><a href="#" onclick="csExport(\''+a.name+'\',\'/export\');return false" style="color:#8ab4f8;text-decoration:none">portfolio</a><a href="#" onclick="csExport(\''+a.name+'\',\'/export-multisource\');return false" style="color:#8ab4f8;text-decoration:none">multisource</a><a href="#" onclick="csExport(\''+a.name+'\',\'/export-reconcile\');return false" style="color:#8ab4f8;text-decoration:none">reconcile</a></span></div>' : '')
       + '<div class="row sect" id="rc-'+a.name+'">probing&hellip;</div>'
       + '<div class="row" id="rx-'+a.name+'"></div>'
       + '<div class="row"><a class="agent-link" href="https://'+a.host+'" target="_blank" rel="noopener">&#8599; open '+a.host+'</a></div>';
@@ -338,8 +338,8 @@ async function probe(a){
       try{
         const p=JSON.parse(pending.body);
         const n=Array.isArray(p.groups)?p.groups.length:(Array.isArray(p)?p.length:(Array.isArray(p.items)?p.items.length:(p.count??0)));
-        rx.textContent='pending: '+n;
-        const mp=$('#minipend-'+a.name); if(mp){ mp.textContent='pend '+n; mp.style.display=n>0?'':'none'; mp.style.cursor='pointer'; mp.title='click: dump the pending queue to the console'; mp.onclick=async()=>{ const r=await api(a.name,'GET','/pending'); log(a.name,'GET','/pending',r); }; }
+        rx.textContent='queue: '+n;
+        const mp=$('#minipend-'+a.name); if(mp){ mp.textContent='queue '+n; mp.style.display=n>0?'':'none'; mp.style.cursor='pointer'; mp.title='click: dump the pending queue to the console'; mp.onclick=async()=>{ const r=await api(a.name,'GET','/pending'); log(a.name,'GET','/pending',r); }; }
       }catch(e){ rx.textContent=''; }
     } else { rx.textContent=''; }
   }
@@ -349,7 +349,7 @@ async function probe(a){
 let PROTLIST=[]; let PROTLIST_TS=0;
 async function loadProtList(){ if(Date.now()-PROTLIST_TS<4000) return; PROTLIST_TS=Date.now(); try{const r=await(await fetch('/api/policy/protected')).json(); if(r&&r.ok) PROTLIST=r.protectedAgents||[];}catch(e){} for(const a of AGENTS) renderProt(a.name); }
 function renderProt(name){ const el=$('#prot-'+name); if(!el) return; const on=PROTLIST.includes(name);
-  el.innerHTML='<span class="muted">guard:</span> <button class="webtog '+(on?'on':'off')+'" style="padding:2px 8px" title="'+(on?'PROTECTED \u2014 decommission is policy-refused; click to run the attested unprotect ceremony':'no guard \u2014 click to run the attested protect ceremony')+'" onclick="protForm(\''+name+'\')">'+(on?'\u{1F6E1}':'\u25CB')+'</button><span id="protreq-'+name+'" class="muted"></span>'; const fs=$('#protformslot-'+name); if(fs) fs.innerHTML='<div id="protform-'+name+'" style="display:none;margin-top:6px"></div>'; }
+  el.innerHTML='<span class="muted">guard:</span> <button class="webtog '+(on?'on':'off')+'" title="'+(on?'PROTECTED \u2014 decommission is policy-refused; click to run the attested unprotect ceremony':'no guard \u2014 click to run the attested protect ceremony')+'" onclick="protForm(\''+name+'\')">'+(on?'ON':'OFF')+'</button><span id="protreq-'+name+'" class="muted"></span>'; const fs=$('#protformslot-'+name); if(fs) fs.innerHTML='<div id="protform-'+name+'" style="display:none;margin-top:6px"></div>'; }
 function protForm(name){ const on=PROTLIST.includes(name); const req='I approve '+(on?'unprotecting':'protecting')+' '+name; const f=$('#protform-'+name); if(!f) return; if(f.style.display!=='none'){ f.style.display='none'; return; }
   f.style.display='block';
   f.innerHTML='<div class="muted" style="font-size:var(--uifs,12px)">'+(on?'Unprotect':'Protect')+' \u2014 the attested ceremony runs here; refusals ledger like every other attempt.</div>'
@@ -384,7 +384,7 @@ function cheatToggle(){
 function esc(x){ return String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 async function buildCheats(){
   const b=document.getElementById('cheatBody'); if(!b)return;
-  let h='<b>ATTESTATION GRAMMAR</b>\n  I approve provisioning &lt;name&gt; \u00b7 I approve decommissioning &lt;name&gt;\n  I approve protecting &lt;name&gt; \u00b7 I approve unprotecting &lt;name&gt;\n  I approve setting &lt;key&gt; to &lt;value&gt;\n\n<b>FLEETCTL</b> <span class="muted">\u2014 runs in PowerShell on this workstation (never ssh; agents are tunnel-only):\n  cd C:\\Users\\marcu\\agent-fleet-iac ; node provision\\bin\\fleetctl.js &lt;command&gt;</span>\n  backup init | list &lt;agent&gt; | snapshot &lt;agent&gt; \u00b7 restore &lt;agent&gt;\n  policy show [--json] \u00b7 protect|unprotect &lt;name&gt; \u00b7 check &lt;contract&gt; --live\n\n<span class="muted">Actions live on each agent card (import on every card; exports on keel cards).\nHeavy skill runs happen on the agent\u2019s own page \u2014 use the card\u2019s open link.</span>\n';
+  let h='<b>ATTESTATION GRAMMAR</b>\n  I approve provisioning &lt;name&gt; \u00b7 I approve decommissioning &lt;name&gt;\n  I approve protecting &lt;name&gt; \u00b7 I approve unprotecting &lt;name&gt;\n  I approve setting &lt;key&gt; to &lt;value&gt;\n\n<b>FLEETCTL</b> <span class="muted">\u2014 runs on the Aegis host \u2014 the machine running aegis.js (today: this workstation; later: the hosted-Aegis VM \u2014 checkout, az login, and vault creds move with it). Never on agents; they are tunnel-only:\n  cd C:\\Users\\marcu\\agent-fleet-iac ; node provision\\bin\\fleetctl.js &lt;command&gt;</span>\n  backup init | list &lt;agent&gt; | snapshot &lt;agent&gt; \u00b7 restore &lt;agent&gt;\n  policy show [--json] \u00b7 protect|unprotect &lt;name&gt; \u00b7 check &lt;contract&gt; --live\n\n<span class="muted">Actions live on each agent card (import on every card; exports on keel cards).\nHeavy skill runs happen on the agent\u2019s own page \u2014 use the card\u2019s open link.</span>\n';
   const profiles=[...new Set(AGENTS.map(a=>a.profile))];
   for(const P of profiles){ h+='\n<b>'+esc(P).toUpperCase()+' PROFILE</b><div id="csp-'+esc(P)+'" style="margin:4px 0 2px 10px">loading\u2026</div>'; }
   b.innerHTML=h;
@@ -406,7 +406,7 @@ async function fillProfileCheats(P){
   }
   h+='<u>skills</u><br>'+(skillsHtml!==null?skillsHtml:('<span class="muted">  '+(sawLegacy?'list lands when a '+esc(P)+' agent is rebuilt on the new core':'start a '+esc(P)+' agent to list live')+'</span>'))+'<br>';
   if(P==='keel') h+='<u>exports</u> <span class="muted">\u2014 GET /export \u00b7 /export-multisource \u00b7 /export-reconcile (download links on each keel card)</span><br>';
-  if(P==='castor') h+='<u>queue</u> <span class="muted">\u2014 the intake queue (already processed, awaiting review); click the pend pill on a card to dump GET /pending \u2014 distinct from staged uploads, which wait for you to click Process</span><br>';
+  if(P==='castor') h+='<u>queue</u> <span class="muted">\u2014 the intake queue (already processed, awaiting review); click the queue pill on a card to dump the queue endpoint (GET /pending) \u2014 distinct from staged uploads, which wait for you to click Process</span><br>';
   h+='<u>import</u> <span class="muted">\u2014 every card: choose file \u2192 Stage \u2192 Staged \u2192 Process moves it to '+(dest?esc(dest):'the profile\u2019s stage_dest')+' and the pipeline takes over</span>';
   el.innerHTML=h;
 }
