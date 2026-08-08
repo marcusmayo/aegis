@@ -278,9 +278,9 @@ async function loadFleet(){
     card.innerHTML = '<div class="top"><span class="dot" id="dot-'+a.name+'"></span>'
       + '<span class="name" id="nm-'+a.name+'">'+a.name+'</span>'
       + '<span class="badge">'+a.profile+'</span>'
-      + '<span class="ctl" id="mdl-'+a.name+'"></span>'
-      + '<span class="ctl" id="web-'+a.name+'"></span>'
-      + '<span class="minipill" id="minipend-'+a.name+'"></span></div><div id="prot-'+a.name+'" style="margin-top:4px"></div>'
+      + '<span class="minipill" id="minipend-'+a.name+'"></span></div>'
+      + '<div class="row"><span class="ctl" id="mdl-'+a.name+'"></span></div>'
+      + '<div id="ctl-'+a.name+'" style="margin-top:4px"><span id="prot-'+a.name+'"></span><span class="ctl" id="web-'+a.name+'" style="margin-left:12px"></span><div id="protformslot-'+a.name+'"></div></div>'
       + '<div class="row" id="rc-'+a.name+'">probing&hellip;</div>'
       + '<div class="row" id="rx-'+a.name+'"></div>'
       + '<div class="row"><a class="agent-link" href="https://'+a.host+'" target="_blank" rel="noopener">&#8599; open '+a.host+'</a></div>';
@@ -332,7 +332,7 @@ async function probe(a){
 let PROTLIST=[]; let PROTLIST_TS=0;
 async function loadProtList(){ if(Date.now()-PROTLIST_TS<4000) return; PROTLIST_TS=Date.now(); try{const r=await(await fetch('/api/policy/protected')).json(); if(r&&r.ok) PROTLIST=r.protectedAgents||[];}catch(e){} for(const a of AGENTS) renderProt(a.name); }
 function renderProt(name){ const el=$('#prot-'+name); if(!el) return; const on=PROTLIST.includes(name);
-  el.innerHTML='<span class="muted">guard:</span> <button class="webtog '+(on?'on':'off')+'" style="padding:2px 8px" title="'+(on?'PROTECTED \u2014 decommission is policy-refused; click to run the attested unprotect ceremony':'no guard \u2014 click to run the attested protect ceremony')+'" onclick="protForm(\''+name+'\')">'+(on?'\u{1F6E1}':'\u25CB')+'</button><span id="protreq-'+name+'" class="muted"></span><div id="protform-'+name+'" style="display:none;margin-top:6px"></div>'; }
+  el.innerHTML='<span class="muted">guard:</span> <button class="webtog '+(on?'on':'off')+'" style="padding:2px 8px" title="'+(on?'PROTECTED \u2014 decommission is policy-refused; click to run the attested unprotect ceremony':'no guard \u2014 click to run the attested protect ceremony')+'" onclick="protForm(\''+name+'\')">'+(on?'\u{1F6E1}':'\u25CB')+'</button><span id="protreq-'+name+'" class="muted"></span>'; const fs=$('#protformslot-'+name); if(fs) fs.innerHTML='<div id="protform-'+name+'" style="display:none;margin-top:6px"></div>'; }
 function protForm(name){ const on=PROTLIST.includes(name); const req='I approve '+(on?'unprotecting':'protecting')+' '+name; const f=$('#protform-'+name); if(!f) return; if(f.style.display!=='none'){ f.style.display='none'; return; }
   f.style.display='block';
   f.innerHTML='<div class="muted" style="font-size:12px">'+(on?'Unprotect':'Protect')+' \u2014 the attested ceremony runs here; refusals ledger like every other attempt.</div>'
