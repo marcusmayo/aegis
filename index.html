@@ -44,7 +44,7 @@
   .log .agent{font-weight:700}
   .log .st-ok{color:#22c55e}.log .st-bad{color:#ef4444}
   .muted{color:var(--dim)}
-  .planout{background:#0c0c0c;border:1px solid #1c1c1c;border-radius:6px;padding:10px;margin-top:8px;white-space:pre-wrap;word-break:break-word;max-height:340px;overflow:auto;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#cfcfcf}
+  .planout{background:#0c0c0c;border:1px solid #1c1c1c;border-radius:6px;padding:10px;margin-top:8px;white-space:pre-wrap;word-break:break-word;min-height:80px;max-height:75vh;resize:vertical;overflow:auto;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#cfcfcf}
   /* Left tool rail: 3 stacked tabs (Advanced / Provisioning / Decommission) sharing one panel */
   #toolRail{position:fixed;left:0;top:64px;z-index:61;display:flex;flex-direction:column;gap:6px}
   .tool-tab{writing-mode:vertical-rl;border:none;cursor:pointer;padding:15px 9px;font-weight:700;letter-spacing:2px;border-radius:0 6px 6px 0;color:#fff;box-shadow:2px 2px 10px rgba(0,0,0,.4)}
@@ -187,7 +187,7 @@
       <button onclick="policySet()">Attest + Set</button>
     </div>
     <div class="muted" style="font-size:12px;margin-top:4px" id="polHintLine">required: I approve setting maxFleet to &lt;n&gt;</div>
-    <pre class="planout" id="policySetOut" style="max-height:160px"><span class="muted">set result appears here&hellip;</span></pre>
+    <pre class="planout" id="policySetOut" style="height:160px"><span class="muted">set result appears here&hellip;</span></pre>
     <h4 style="margin:10px 0 4px">Recent attested actions (merged)</h4>
     <pre class="planout" id="attOut" style="max-height:200px"><span class="muted">timeline appears here&hellip;</span></pre>
   
