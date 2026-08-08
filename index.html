@@ -351,22 +351,84 @@ async function protGo(name){ const attest=($('#protattest-'+name)||{value:''}).v
   if(r&&r.ok){ PROTLIST=r.protectedAgents||PROTLIST; for(const a of AGENTS) renderProt(a.name); }
   else { const f=$('#protform-'+name); if(f){ f.style.display='block'; f.innerHTML='<div style="color:#ef4444;white-space:pre-wrap;font-size:12px">'+((r&&r.out)||(r&&r.error)||'REFUSED / ERROR')+'</div>'; } } }
 async function loadProtAgent(a){ try{ const r=await api(a.name,'GET','/protection'); if(r.status!==200) return; const j=JSON.parse(r.body); const should=PROTLIST.includes(a.name); const el=$('#protreq-'+a.name); if(el) el.textContent=j.requested?(' \u00B7 '+j.requested+' requested \u2192 complete ceremony here'):''; if(!!j.protected!==should){ api(a.name,'POST','/protection',{protected:should}); } }catch(e){} }
-function tgt(){ return document.getElementById('target').value; }
-function tgtProfile(){ const a=AGENTS.find(x=>x.name===tgt()); return a?a.profile:''; }
-function csToggle(){ const c=document.getElementById('cheats'); if(c.style.display!=='none'){ c.style.display='none'; return; }
-  const p=tgtProfile();
-  let h='ATTESTATION GRAMMAR\n  I approve provisioning <name> · I approve decommissioning <name>\n  I approve protecting <name> · I approve unprotecting <name>\n  I approve setting <key> to <value>   (policy keys: maxFleet maxBatch budget allowedRegions defaultRegion budgetName protectedAgents)\n\nFLEETCTL QUICK REFERENCE\n  fleetctl backup init | list <agent> | snapshot <agent>\n  fleetctl restore <agent> [--blob <name>]\n  fleetctl policy show [--json] · protect|unprotect <name>\n  fleetctl check <contract> --live\n\nTARGET: '+tgt()+' ('+(p||'?')+')\n';
-  if(p==='keel') h+='  GET /export · /export-multisource · /export-reconcile   (Exports button downloads via proxy)\n  stage_dest: exports/inbound — staged files feed the /run-* import skills\n';
-  if(p==='castor') h+='  GET /pending (click the pend pill) · POST /pending/interpret\n  stage_dest: inbox/drop — staged files enter the native intake pipeline\n';
-  h+='  skill routes: use Run with a /run-… path; List works on agents rebuilt with the new core\n';
-  c.textContent=h; c.style.display='block';
+// ---- Right-side Cheatsheet: attestation grammar, fleetctl refs, and a per-agent
+// section (skills click-to-run, keel exports as in-panel downloads, staged-file lane
+// with its one-line explanation). Everything here is agent-scoped, so nothing
+// profile-specific ever shows on the wrong agent.
+function ensureCheatRail(){
+  if(document.getElementById('cheatTab'))return;
+  const t=document.createElement('div'); t.id='cheatTab'; t.textContent='Cheatsheet';
+  t.style.cssText='position:fixed;right:0;top:180px;z-index:70;background:#334155;color:#fff;writing-mode:vertical-rl;padding:12px 6px;border-radius:8px 0 0 8px;cursor:pointer;font:600 13px system-ui;letter-spacing:.06em;user-select:none';
+  t.onclick=cheatToggle; document.body.appendChild(t);
+  const p=document.createElement('div'); p.id='cheatPanel';
+  p.style.cssText='position:fixed;right:0;top:64px;z-index:69;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-right:none;border-radius:8px 0 0 8px;max-height:84vh;box-shadow:-6px 0 18px rgba(0,0,0,.45)';
+  p.innerHTML='<div id="cheatBody" style="width:min(560px,92vw);max-height:84vh;overflow:auto;padding:14px;font:12px/1.55 ui-monospace,monospace;color:#cfcfcf;white-space:pre-wrap"></div>';
+  document.body.appendChild(p);
 }
-async function skRun(){ const pth=(document.getElementById('skPath').value||'').trim(); const m=document.getElementById('skMethod').value; if(!/^\/[A-Za-z0-9/_-]+$/.test(pth)){ alert('path must look like /run-…'); return; } const r=await api(tgt(),m,pth,m==='POST'?{}:null); log(tgt(),m,pth,r); }
-async function skList(){ const r=await api(tgt(),'GET','/skills'); log(tgt(),'GET','/skills',r); if(r.status===200){ try{ const j=JSON.parse(r.body); const c=document.getElementById('cheats'); c.textContent='SKILLS on '+tgt()+'\n'+(j.skills||[]).map(s=>'  '+s.method+' '+s.route+(s.summary?('  — '+s.summary):'')).join('\n'); c.style.display='block'; }catch(e){} } }
-function expMenu(){ const p=tgtProfile(); const box=document.getElementById('expBtns'); if(p!=='keel'){ box.textContent=' (exports are keel-profile; target '+tgt()+' is '+(p||'?')+')'; setTimeout(()=>box.textContent='',4000); return; } box.innerHTML=['/export','/export-multisource','/export-reconcile'].map(x=>'<a class="send" style="text-decoration:none" href="/api/fetch/'+tgt()+'?path='+encodeURIComponent(x)+'">'+x.replace('/export','xlsx').replace('-',' ')+'</a>').join(''); }
-function upStage(){ const f=(document.getElementById('upFile').files||[])[0]; if(!f){ alert('choose a file first'); return; } const rd=new FileReader(); rd.onload=async ()=>{ const b64=String(rd.result).split(',')[1]||''; const r=await api(tgt(),'POST','/files/stage',{name:f.name,dataBase64:b64}); log(tgt(),'POST','/files/stage '+f.name,r); if(r.status===404) log(tgt(),'note','', {status:0,body:'this agent predates the staged-file lane — lands at its rebuild'}); }; rd.readAsDataURL(f); }
-async function upList(){ const r=await api(tgt(),'GET','/files/staged'); log(tgt(),'GET','/files/staged',r); if(r.status!==200) return; try{ const j=JSON.parse(r.body); const c=document.getElementById('cheats'); c.innerHTML='STAGED on '+tgt()+' (process moves to '+j.dest+')<br>'+((j.files||[]).map(x=>x.name+' ('+x.bytes+'b) <button class="send" onclick="upProc(\''+x.name.replace(/'/g,'')+'\')">Process</button>').join('<br>')||'(none)'); c.style.display='block'; }catch(e){} }
-async function upProc(n){ const r=await api(tgt(),'POST','/files/process',{name:n}); log(tgt(),'POST','/files/process '+n,r); upList(); }
+let cheatOpen=false;
+function cheatToggle(){
+  const p=document.getElementById('cheatPanel'); cheatOpen=!cheatOpen;
+  if(cheatOpen){ p.style.width='min(560px,92vw)'; p.style.opacity='1'; buildCheats(); }
+  else { p.style.width='0'; p.style.opacity='0'; }
+}
+function esc(x){ return String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+async function buildCheats(){
+  const b=document.getElementById('cheatBody'); if(!b)return;
+  let h='<b>ATTESTATION GRAMMAR</b>\n  I approve provisioning &lt;name&gt; \u00b7 I approve decommissioning &lt;name&gt;\n  I approve protecting &lt;name&gt; \u00b7 I approve unprotecting &lt;name&gt;\n  I approve setting &lt;key&gt; to &lt;value&gt;\n\n<b>FLEETCTL</b>\n  backup init | list &lt;agent&gt; | snapshot &lt;agent&gt; \u00b7 restore &lt;agent&gt;\n  policy show [--json] \u00b7 protect|unprotect &lt;name&gt; \u00b7 check &lt;contract&gt; --live\n';
+  for(const a of AGENTS){ h+='\n<b>'+esc(a.name).toUpperCase()+'</b> <span class="muted">('+esc(a.profile)+')</span><div id="cs-'+esc(a.name)+'" style="margin:4px 0 2px 10px">loading\u2026</div>'; }
+  b.innerHTML=h;
+  for(const a of AGENTS) fillAgentCheats(a);
+}
+async function fillAgentCheats(a){
+  const el=document.getElementById('cs-'+a.name); if(!el)return;
+  let h='';
+  // skills: listed by the agent itself; click a row to run it (result goes to the console log)
+  try{
+    const r=await api(a.name,'GET','/skills');
+    if(r.status===200){ const j=JSON.parse(r.body);
+      h+='<u>skills</u> <span class="muted">(click to run \u2192 result in the console)</span><br>';
+      h+=(j.skills||[]).map(sk=>'<a href="#" onclick="csRun(\''+a.name+'\',\''+sk.method+'\',\''+esc(sk.route)+'\');return false" style="color:#8ab4f8">'+esc(sk.method)+' '+esc(sk.route)+'</a>'+(sk.summary?(' <span class="muted">\u2014 '+esc(sk.summary)+'</span>'):'')).join('<br>')||'(none declared)';
+      h+='<br>';
+    } else if(r.status===404){ h+='<u>skills</u> <span class="muted">\u2014 list lands at this agent\u2019s rebuild (its image predates GET /skills)</span><br>'; }
+    else { h+='<u>skills</u> <span class="muted">\u2014 agent unreachable ('+r.status+')</span><br>'; }
+  }catch(e){ h+='<u>skills</u> <span class="muted">\u2014 unreachable</span><br>'; }
+  if(a.profile==='keel'){
+    h+='<u>exports</u> <span class="muted">(xlsx via the Aegis proxy)</span><br>'+['/export','/export-multisource','/export-reconcile'].map(x=>'<a href="#" onclick="csExport(\''+a.name+'\',\''+x+'\');return false" style="color:#8ab4f8">'+x+'</a>').join(' \u00b7 ')+'<br>';
+  }
+  if(a.profile==='castor'){ h+='<u>queue</u> <span class="muted">\u2014 click the pend pill on the card to dump GET /pending</span><br>'; }
+  h+='<u>staged files</u> <span class="muted">\u2014 upload \u2192 staging \u2192 Process hands the file to this agent\u2019s pipeline dir</span><br>'
+    +'<input type="file" id="csf-'+a.name+'" style="max-width:200px"> <button class="send" onclick="csStage(\''+a.name+'\')">Stage</button> <button class="send" onclick="csStagedList(\''+a.name+'\')">Show staged</button><div id="csl-'+a.name+'" style="margin-left:10px"></div>';
+  el.innerHTML=h;
+}
+async function csRun(agent,method,route){ const r=await api(agent,method,route,method==='POST'?{}:null); log(agent,method,route,r); }
+async function csExport(agent,p){
+  try{
+    const r=await fetch('/api/fetch/'+encodeURIComponent(agent)+'?path='+encodeURIComponent(p));
+    if(!r.ok){ let t=''; try{ t=JSON.stringify(await r.json()); }catch{ t='HTTP '+r.status; } log(agent,'GET',p,{status:r.status,body:t}); return; }
+    const blob=await r.blob(); const cd=r.headers.get('Content-Disposition')||''; const fm=cd.match(/filename="?([^";]+)/);
+    const aEl=document.createElement('a'); aEl.href=URL.createObjectURL(blob); aEl.download=(fm&&fm[1])||(agent+p.replace(/\//g,'-')+'.xlsx'); document.body.appendChild(aEl); aEl.click(); aEl.remove();
+    log(agent,'GET',p,{status:200,body:'downloaded '+aEl.download+' ('+blob.size+' bytes)'});
+  }catch(e){ log(agent,'GET',p,{status:0,body:String(e)}); }
+}
+function csStage(agent){
+  const f=(document.getElementById('csf-'+agent).files||[])[0]; if(!f){ alert('choose a file first'); return; }
+  const rd=new FileReader();
+  rd.onload=async ()=>{ const b64=String(rd.result).split(',')[1]||'';
+    const r=await api(agent,'POST','/files/stage',{name:f.name,dataBase64:b64});
+    log(agent,'POST','/files/stage '+f.name,r);
+    if(r.status===404) log(agent,'note','',{status:0,body:'this agent predates the staged-file lane \u2014 lands at its rebuild'});
+    else csStagedList(agent);
+  };
+  rd.readAsDataURL(f);
+}
+async function csStagedList(agent){
+  const r=await api(agent,'GET','/files/staged'); const el=document.getElementById('csl-'+agent); if(!el)return;
+  if(r.status!==200){ el.innerHTML='<span class="muted">'+(r.status===404?'lane lands at rebuild':'unreachable ('+r.status+')')+'</span>'; return; }
+  try{ const j=JSON.parse(r.body);
+    el.innerHTML=((j.files||[]).map(x=>esc(x.name)+' ('+x.bytes+'b) <button class="send" onclick="csProc(\''+agent+'\',\''+esc(x.name).replace(/'/g,'')+'\')">Process \u2192 '+esc(j.dest)+'</button>').join('<br>'))||'<span class="muted">(nothing staged)</span>';
+  }catch(e){ el.textContent='parse error'; }
+}
+async function csProc(agent,n){ const r=await api(agent,'POST','/files/process',{name:n}); log(agent,'POST','/files/process '+n,r); csStagedList(agent); }
 async function loadWeb(a){
   const el = $('#web-'+a.name); if(!el) return;
   const r = await api(a.name,'GET','/web-access');
@@ -581,13 +643,7 @@ async function sendRaw(){
     + '<button id="chatSend" class="send">Send prompt</button>'
     + '<button class="send" onclick="newConversation()" title="Start a fresh conversation on the selected agent (shared with its webchat)">&#8635; New</button>';
   host.insertBefore(bar, document.getElementById('log'));
-  const act=document.createElement('div'); act.className='raw'; act.id='actrow';
-  act.innerHTML='<button class="send" onclick="csToggle()" title="Attestation grammars, fleetctl quick reference, per-target commands">Cheatsheet</button>'
-    +'<span class="muted">skill:</span><input id="skPath" placeholder="/run-…" style="width:150px"><select id="skMethod"><option>GET</option><option>POST</option></select><button class="send" onclick="skRun()">Run</button><button class="send" onclick="skList()" title="GET /skills — agents rebuilt on the new core list themselves; older images 404 here">List</button>'
-    +'<button class="send" onclick="expMenu()" title="Keel xlsx exports, downloaded through the Aegis binary proxy">Exports</button><span id="expBtns"></span>'
-    +'<span class="muted" style="margin-left:6px">file:</span><input type="file" id="upFile" style="max-width:180px"><button class="send" onclick="upStage()">Stage</button><button class="send" onclick="upList()">Staged</button>';
-  host.insertBefore(act, document.getElementById('log'));
-  const cs=document.createElement('div'); cs.id='cheats'; cs.className='planout'; cs.style.display='none'; host.insertBefore(cs, document.getElementById('log'));
+  ensureCheatRail();
   document.getElementById('chatSend').onclick = chatSend;
   document.getElementById('prompt').addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); chatSend(); }});
 })();
