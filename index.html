@@ -332,8 +332,8 @@ async function probe(a){
 let PROTLIST=[]; let PROTLIST_TS=0;
 async function loadProtList(){ if(Date.now()-PROTLIST_TS<4000) return; PROTLIST_TS=Date.now(); try{const r=await(await fetch('/api/policy/protected')).json(); if(r&&r.ok) PROTLIST=r.protectedAgents||[];}catch(e){} for(const a of AGENTS) renderProt(a.name); }
 function renderProt(name){ const el=$('#prot-'+name); if(!el) return; const on=PROTLIST.includes(name);
-  el.innerHTML='<span class="muted">guard:</span> <button class="webtog '+(on?'on':'off')+'" onclick="protForm(\''+name+'\')">'+(on?'\u{1F6E1} PROTECTED':'\u25CB off')+'</button><span id="protreq-'+name+'" class="muted"></span><div id="protform-'+name+'" style="display:none;margin-top:6px"></div>'; }
-function protForm(name){ const on=PROTLIST.includes(name); const next=on?PROTLIST.filter(n=>n!==name):PROTLIST.concat([name]); const value=next.length?next.join(','):'none'; const req='I approve setting protectedAgents to '+value; const f=$('#protform-'+name); if(!f) return; if(f.style.display!=='none'){ f.style.display='none'; return; }
+  el.innerHTML='<span class="muted">guard:</span> <button class="webtog '+(on?'on':'off')+'" style="padding:2px 8px" title="'+(on?'PROTECTED \u2014 decommission is policy-refused; click to run the attested unprotect ceremony':'no guard \u2014 click to run the attested protect ceremony')+'" onclick="protForm(\''+name+'\')">'+(on?'\u{1F6E1}':'\u25CB')+'</button><span id="protreq-'+name+'" class="muted"></span><div id="protform-'+name+'" style="display:none;margin-top:6px"></div>'; }
+function protForm(name){ const on=PROTLIST.includes(name); const req='I approve '+(on?'unprotecting':'protecting')+' '+name; const f=$('#protform-'+name); if(!f) return; if(f.style.display!=='none'){ f.style.display='none'; return; }
   f.style.display='block';
   f.innerHTML='<div class="muted" style="font-size:12px">'+(on?'Unprotect':'Protect')+' \u2014 the attested ceremony runs here; refusals ledger like every other attempt.</div>'
     +'<input style="width:100%;margin-top:4px" id="protattest-'+name+'" placeholder="type the attestation sentence">'

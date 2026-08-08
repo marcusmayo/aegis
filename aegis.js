@@ -344,12 +344,15 @@ const server = http.createServer(async (req, res) => {
     const cur = runFleetctl(['policy', 'show', '--json']);
     let list; try { list = JSON.parse(cur.out || '{}').protectedAgents || []; } catch { return sendJson(res, { ok: false, error: 'cannot read policy (fleetctl policy show --json failed)' }, 500); }
     const on = list.includes(name);
-    const next = on ? list.filter((n) => n !== name) : list.concat([name]);
-    const value = next.length ? next.join(',') : 'none';
-    const r = runFleetctl(['policy', 'set', 'protectedAgents', value, '--attest', attest]);
-    audit({ action: 'protect-toggle', name, to: value, outcome: r.code === 0 ? 'ok' : 'exit ' + r.code });
-    if (r.code === 0) { const agent = agentByName(name); if (agent) { try { callAgent(agent, 'POST', '/protection', { protected: !on }); } catch { /* unreachable */ } } }
-    return sendJson(res, { ok: r.code === 0, out: panelClean(r.out), protectedAgents: r.code === 0 ? next : list });
+    const r = runFleetctl(['policy', on ? 'unprotect' : 'protect', name, '--attest', attest]);
+    audit({ action: 'protect-toggle', name, verb: on ? 'unprotect' : 'protect', outcome: r.code === 0 ? 'ok' : 'exit ' + r.code });
+    let next = list;
+    if (r.code === 0) {
+      const rr = runFleetctl(['policy', 'show', '--json']);
+      try { next = JSON.parse(rr.out || '{}').protectedAgents || list; } catch { /* keep prior */ }
+      const agent = agentByName(name); if (agent) { try { callAgent(agent, 'POST', '/protection', { protected: !on }); } catch { /* unreachable */ } }
+    }
+    return sendJson(res, { ok: r.code === 0, out: panelClean(r.out), protectedAgents: next });
   }
   // Decommission plan (READ-ONLY): discover which surfaces an agent still occupies.
   if (req.url === '/api/decommission/plan' && req.method === 'POST') {
