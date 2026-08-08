@@ -24,6 +24,8 @@
   .fleet.mini .card{padding:6px 12px;border-radius:16px}
   .fleet.mini .card .row{display:none}
   .fleet.mini .card .mdlrow{display:flex}   /* model stays visible in the collapsed card, inside its frame */
+  .fleet.mini .card{width:max-content;max-width:100%}
+  .fleet.mini .card .mdlrow .mdl-sel{flex:0 0 auto;width:max-content}   /* collapsed chip widens to fit the full model label */
   .card .mdlrow{min-width:0}
   .card .mdlrow .ctl{min-width:0;flex:1 1 auto;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;max-width:none}
   .card .mdlrow .mdl-sel{flex:1 1 0%;width:0;min-width:0;max-width:none}
