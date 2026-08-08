@@ -326,6 +326,31 @@ const server = http.createServer(async (req, res) => {
     audit({ action: 'provision-go', name, actor, phrase: attest, outcome: 'started' });
     return streamFleetctl(res, ['up', persisted, '--go'], null, (code) => audit({ action: 'provision-go', name, actor, phrase: attest, outcome: code === 0 ? 'done' : 'exit ' + code }));
   }
+  // Protection state (authoritative = the workstation policy via the fleetctl CLI).
+  if (req.url === '/api/policy/protected' && req.method === 'GET') {
+    const r = runFleetctl(['policy', 'show', '--json']);
+    let list = []; try { list = JSON.parse(r.out || '{}').protectedAgents || []; } catch { /* unreadable */ }
+    return sendJson(res, { ok: r.code === 0, protectedAgents: list });
+  }
+  // Protection toggle = the SAME attested ceremony, hosted on the card. The server
+  // recomputes the new list from the live policy (never trusts the client); the
+  // fleetctl CLI stays the sole gate (refusals ledger there); on success the
+  // agent's mirror is pushed best-effort so the webchat badge follows.
+  if (req.url === '/api/policy/protect-toggle' && req.method === 'POST') {
+    const b = await readBody(req);
+    const name = String(b.name || '').trim();
+    const attest = String(b.attest || '').trim();
+    if (!NAME_RE.test(name)) return sendJson(res, { ok: false, error: 'invalid agent name' }, 400);
+    const cur = runFleetctl(['policy', 'show', '--json']);
+    let list; try { list = JSON.parse(cur.out || '{}').protectedAgents || []; } catch { return sendJson(res, { ok: false, error: 'cannot read policy (fleetctl policy show --json failed)' }, 500); }
+    const on = list.includes(name);
+    const next = on ? list.filter((n) => n !== name) : list.concat([name]);
+    const value = next.length ? next.join(',') : 'none';
+    const r = runFleetctl(['policy', 'set', 'protectedAgents', value, '--attest', attest]);
+    audit({ action: 'protect-toggle', name, to: value, outcome: r.code === 0 ? 'ok' : 'exit ' + r.code });
+    if (r.code === 0) { const agent = agentByName(name); if (agent) { try { callAgent(agent, 'POST', '/protection', { protected: !on }); } catch { /* unreachable */ } } }
+    return sendJson(res, { ok: r.code === 0, out: panelClean(r.out), protectedAgents: r.code === 0 ? next : list });
+  }
   // Decommission plan (READ-ONLY): discover which surfaces an agent still occupies.
   if (req.url === '/api/decommission/plan' && req.method === 'POST') {
     const b = await readBody(req);

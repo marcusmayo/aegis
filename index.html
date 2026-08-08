@@ -280,7 +280,7 @@ async function loadFleet(){
       + '<span class="badge">'+a.profile+'</span>'
       + '<span class="ctl" id="mdl-'+a.name+'"></span>'
       + '<span class="ctl" id="web-'+a.name+'"></span>'
-      + '<span class="minipill" id="minipend-'+a.name+'"></span></div>'
+      + '<span class="minipill" id="minipend-'+a.name+'"></span></div><div id="prot-'+a.name+'" style="margin-top:4px"></div>'
       + '<div class="row" id="rc-'+a.name+'">probing&hellip;</div>'
       + '<div class="row" id="rx-'+a.name+'"></div>'
       + '<div class="row"><a class="agent-link" href="https://'+a.host+'" target="_blank" rel="noopener">&#8599; open '+a.host+'</a></div>';
@@ -307,7 +307,8 @@ async function probe(a){
   } else {
     rc.innerHTML = '<span class="st-bad">unreachable / auth failed (HTTP '+color.status+')</span> '+(color.body||'').slice(0,80);
   }
-  if(ok){ loadModel(a); loadWeb(a); }
+  if(ok){ loadModel(a); loadWeb(a); loadProtAgent(a); }
+  loadProtList();
   // Pending-queue visibility (count only -- REVIEW stays in the agent's own webchat, per the
   // control-plane/agent domain division). Generic: any agent exposing GET /pending shows a live
   // count (castor's vision intake returns {groups:[...]}); keel has no pending endpoint today,
@@ -328,6 +329,21 @@ async function probe(a){
 }
 
 // Per-agent web-research toggle (default OFF = structurally denied). GET/POST /web-access.
+let PROTLIST=[]; let PROTLIST_TS=0;
+async function loadProtList(){ if(Date.now()-PROTLIST_TS<4000) return; PROTLIST_TS=Date.now(); try{const r=await(await fetch('/api/policy/protected')).json(); if(r&&r.ok) PROTLIST=r.protectedAgents||[];}catch(e){} for(const a of AGENTS) renderProt(a.name); }
+function renderProt(name){ const el=$('#prot-'+name); if(!el) return; const on=PROTLIST.includes(name);
+  el.innerHTML='<span class="muted">guard:</span> <button class="webtog '+(on?'on':'off')+'" onclick="protForm(\''+name+'\')">'+(on?'\u{1F6E1} PROTECTED':'\u25CB off')+'</button><span id="protreq-'+name+'" class="muted"></span><div id="protform-'+name+'" style="display:none;margin-top:6px"></div>'; }
+function protForm(name){ const on=PROTLIST.includes(name); const next=on?PROTLIST.filter(n=>n!==name):PROTLIST.concat([name]); const value=next.length?next.join(','):'none'; const req='I approve setting protectedAgents to '+value; const f=$('#protform-'+name); if(!f) return; if(f.style.display!=='none'){ f.style.display='none'; return; }
+  f.style.display='block';
+  f.innerHTML='<div class="muted" style="font-size:12px">'+(on?'Unprotect':'Protect')+' \u2014 the attested ceremony runs here; refusals ledger like every other attempt.</div>'
+    +'<input style="width:100%;margin-top:4px" id="protattest-'+name+'" placeholder="type the attestation sentence">'
+    +'<div id="prothint-'+name+'" class="muted" style="font-size:12px;margin-top:2px">type exactly: '+req+'</div>'
+    +'<button id="protgo-'+name+'" disabled onclick="protGo(\''+name+'\')" style="margin-top:4px">Attest + '+(on?'Unprotect':'Protect')+'</button>';
+  const inp=$('#protattest-'+name); inp.oninput=function(){ const t=inp.value.trim(); const h=$('#prothint-'+name); const g=$('#protgo-'+name); const ok=t===req; if(g) g.disabled=!ok; if(!h) return; if(ok){ h.style.color='#22c55e'; h.textContent='\u2713 phrase matches \u2014 '+(on?'Unprotect':'Protect')+' enabled'; } else if(t){ h.style.color='#ef4444'; h.textContent='MISMATCH \u2014 type exactly: '+req; } else { h.style.color=''; h.textContent='type exactly: '+req; } }; }
+async function protGo(name){ const attest=($('#protattest-'+name)||{value:''}).value||''; const r=await(await fetch('/api/policy/protect-toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,attest})})).json();
+  if(r&&r.ok){ PROTLIST=r.protectedAgents||PROTLIST; for(const a of AGENTS) renderProt(a.name); }
+  else { const f=$('#protform-'+name); if(f){ f.style.display='block'; f.innerHTML='<div style="color:#ef4444;white-space:pre-wrap;font-size:12px">'+((r&&r.out)||(r&&r.error)||'REFUSED / ERROR')+'</div>'; } } }
+async function loadProtAgent(a){ try{ const r=await api(a.name,'GET','/protection'); if(r.status!==200) return; const j=JSON.parse(r.body); const should=PROTLIST.includes(a.name); const el=$('#protreq-'+a.name); if(el) el.textContent=j.requested?(' \u00B7 '+j.requested+' requested \u2192 complete ceremony here'):''; if(!!j.protected!==should){ api(a.name,'POST','/protection',{protected:should}); } }catch(e){} }
 async function loadWeb(a){
   const el = $('#web-'+a.name); if(!el) return;
   const r = await api(a.name,'GET','/web-access');
