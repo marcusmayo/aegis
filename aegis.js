@@ -326,6 +326,28 @@ const server = http.createServer(async (req, res) => {
     audit({ action: 'provision-go', name, actor, phrase: attest, outcome: 'started' });
     return streamFleetctl(res, ['up', persisted, '--go'], null, (code) => audit({ action: 'provision-go', name, actor, phrase: attest, outcome: code === 0 ? 'done' : 'exit ' + code }));
   }
+  // Binary passthrough for the agent EXPORT routes only (xlsx downloads the JSON
+  // console proxy would corrupt). Tight allowlist: path must start with /export.
+  {
+    const fm = req.url.match(/^\/api\/fetch\/([^/?]+)\?path=([^&]+)$/);
+    if (fm && req.method === 'GET') {
+      const agent = agentByName(decodeURIComponent(fm[1]));
+      const p = decodeURIComponent(fm[2]);
+      if (!agent) return sendJson(res, { ok: false, error: 'unknown agent' }, 404);
+      if (!/^\/export[A-Za-z0-9/_-]*$/.test(p)) return sendJson(res, { ok: false, error: 'only /export* paths are downloadable' }, 400);
+      const r2 = https.request({ method: 'GET', hostname: agent.host, path: p, headers: {
+        'CF-Access-Client-Id': agent.clientId, 'CF-Access-Client-Secret': agent.clientSecret } }, (ar) => {
+        if (ar.statusCode !== 200) { let eb=''; ar.on('data',c=>eb+=c); ar.on('end',()=>sendJson(res,{ok:false,error:'agent returned HTTP '+ar.statusCode,body:String(eb).slice(0,200)},502)); return; }
+        res.statusCode = 200;
+        res.setHeader('Content-Type', ar.headers['content-type'] || 'application/octet-stream');
+        res.setHeader('Content-Disposition', ar.headers['content-disposition'] || ('attachment; filename="' + agent.name + p.replace(/\//g,'-') + '.xlsx"'));
+        ar.pipe(res);
+      });
+      r2.on('error', (e) => sendJson(res, { ok: false, error: 'agent unreachable: ' + e.message }, 502));
+      r2.end();
+      return;
+    }
+  }
   // Protection state (authoritative = the workstation policy via the fleetctl CLI).
   if (req.url === '/api/policy/protected' && req.method === 'GET') {
     const r = runFleetctl(['policy', 'show', '--json']);
