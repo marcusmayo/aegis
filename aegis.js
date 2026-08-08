@@ -291,7 +291,10 @@ const server = http.createServer(async (req, res) => {
     if (!ork || /[<>]/.test(ork) || !ork.startsWith('sk-or-')) return sendJson(res, { ok: false, error: 'openrouterKey must be a real sk-or-… key (no placeholders)' }, 400);
     if (!FLEET_IAC_ROOT || !fs.existsSync(fleetctlPath())) return sendJson(res, { ok: false, error: 'FLEET_IAC_ROOT not set / fleetctl not found' }, 500);
     const persisted = path.join(FLEET_IAC_ROOT, 'agents', `${name}.agent.jsonc`);
-    if (!fs.existsSync(persisted)) return sendJson(res, { ok: false, error: `no agents/${name}.agent.jsonc — write the contract first` }, 400);
+    if (!fs.existsSync(persisted)) {
+      audit({ action: 'provision-seed', name, outcome: 'refused: no contract' });
+      return sendJson(res, { ok: false, error: `no agents/${name}.agent.jsonc — write the contract first` }, 400);
+    }
     audit({ action: 'provision-seed', name, phase: 'start' });
     return streamFleetctl(res, ['set-secrets', name], { ANTHROPIC_API_KEY: anth, OPENROUTER_API_KEY: ork }, (code) => audit({ action: 'provision-seed', name, phase: 'done', code }));
   }
@@ -316,7 +319,10 @@ const server = http.createServer(async (req, res) => {
     if (!opEmail || /[<>\s]/.test(opEmail) || !opEmail.includes('@')) return sendJson(res, { ok: false, error: 'operator email missing — add "operatorEmail": "you@example.com" to aegis.config.json (the email you log into the agents with), then retry (no restart needed)' }, 400);
     if (!FLEET_IAC_ROOT || !fs.existsSync(fleetctlPath())) return sendJson(res, { ok: false, error: 'FLEET_IAC_ROOT not set / fleetctl not found' }, 500);
     const persisted = path.join(FLEET_IAC_ROOT, 'agents', `${name}.agent.jsonc`);
-    if (!fs.existsSync(persisted)) return sendJson(res, { ok: false, error: `no agents/${name}.agent.jsonc — write the contract first` }, 400);
+    if (!fs.existsSync(persisted)) {
+      audit({ action: 'provision-go', name, actor, phrase: attest, outcome: 'refused: no contract' });
+      return sendJson(res, { ok: false, error: `no agents/${name}.agent.jsonc — write the contract first` }, 400);
+    }
     audit({ action: 'provision-go', name, actor, phrase: attest, outcome: 'started' });
     return streamFleetctl(res, ['up', persisted, '--go'], null, (code) => audit({ action: 'provision-go', name, actor, phrase: attest, outcome: code === 0 ? 'done' : 'exit ' + code }));
   }
@@ -351,27 +357,6 @@ const server = http.createServer(async (req, res) => {
     audit({ action: 'decommission-go', name, actor, phrase: attest, outcome: 'started' });
     return streamFleetctl(res, ['decommission', file, '--go'], null,
       (code) => audit({ action: 'decommission-go', name, actor, phrase: attest, outcome: code === 0 ? 'done' : 'exit ' + code }));
-  }
-  // Decommission EXECUTE (DESTRUCTIVE): requires a typed attestation phrase, then streams
-  // `fleetctl decommission <contract> --go` LIVE via async spawn — so the minutes-long
-  // blocking RG delete never freezes Aegis. The HTTP response body is the live output.
-  if (req.url === '/api/decommission/go' && req.method === 'POST') {
-    const b = await readBody(req);
-    const name = String(b.name || '').trim();
-    const attest = String(b.attest || '').trim();
-    if (!NAME_RE.test(name)) return sendJson(res, { ok: false, error: 'invalid agent name' }, 400);
-    const required = 'decommission ' + name;
-    if (attest !== required) return sendJson(res, { ok: false, error: 'attestation does not match — type exactly:  ' + required }, 403);
-    const cfp = cfEnvProblem();
-    if (cfp) return sendJson(res, { ok: false, error: cfp }, 400);
-    if (!FLEET_IAC_ROOT || !fs.existsSync(fleetctlPath())) return sendJson(res, { ok: false, error: 'FLEET_IAC_ROOT not set / fleetctl not found' }, 500);
-    const { file, temp } = contractFor(name);
-    audit({ action: 'decommission-go', name, phase: 'start' });
-    streamFleetctl(res, ['decommission', file, '--go'], null, (code) => {
-      if (temp) { try { fs.unlinkSync(file); } catch { /* best effort */ } }
-      audit({ action: 'decommission-go', name, phase: 'done', code });
-    });
-    return;
   }
   res.statusCode = 404; res.end('not found');
 });
@@ -420,7 +405,13 @@ function relay(browserWs, agent) {
       tell(frame);
       if (frame.type === 'done' && agentWs) { try { agentWs.close(); } catch {} }
     });
-    agentWs.on('error', (e) => { tell({ type: 'error', text: 'agent connect: ' + e.message }); tell({ type: 'done' }); });
+    agentWs.on('error', (e) => {
+      const m = String(e.message || '');
+      let hint = '';
+      if (/530/.test(m)) hint = ` — ${agent.name} unreachable: tunnel down (VM deallocated?). Start it: az vm start -g rg-${agent.name} -n ${agent.name}-vm`;
+      else if (/502/.test(m)) hint = ` — ${agent.name} tunnel is up but nothing listens yet (agent starting or containers down)`;
+      tell({ type: 'error', text: 'agent connect: ' + m + hint }); tell({ type: 'done' });
+    });
     agentWs.on('close', () => { /* command complete; browser stays open for next send */ });
   });
 

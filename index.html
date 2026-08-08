@@ -181,7 +181,7 @@
     <button onclick="policyLoad()">Refresh policy + attestations</button>
     <pre class="planout" id="policyOut"><span class="muted">policy appears here&hellip;</span></pre>
     <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-      <select id="polKey" onchange="polHint()"><option>maxFleet</option><option>maxBatch</option><option>budget</option><option>allowedRegions</option><option>defaultRegion</option><option>budgetName</option></select>
+      <select id="polKey" onchange="polHint()"><option>maxFleet</option><option>maxBatch</option><option>budget</option><option>allowedRegions</option><option>defaultRegion</option><option>budgetName</option><option>protectedAgents</option></select>
       <input id="polVal" style="width:200px" placeholder="value (e.g. 6 or eastus2,centralus)" oninput="polHint()">
       <input id="polAttest" style="flex:1;min-width:260px" placeholder="type the attestation sentence">
       <button onclick="policySet()">Attest + Set</button>
