@@ -70,6 +70,7 @@
   #toolPanel{position:fixed;left:40px;top:64px;z-index:60;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-left:none;border-radius:0 8px 8px 0;max-height:84vh;overflow-y:auto;box-shadow:6px 0 18px rgba(0,0,0,.45)}
   #toolPanel.open{width:440px;opacity:1;padding:14px}
   #toolGrip{position:absolute;top:0;right:0;width:7px;height:100%;cursor:ew-resize;z-index:5}
+  .card.dragging{opacity:.45;outline:2px dashed #666;outline-offset:2px}
   #toolGrip:hover{background:#26262666}
   .provrun{margin:8px 0;border:1px solid #262626;border-radius:8px;padding:8px;background:#0b0b0b}
   .provrun h4{margin:0 0 6px;font:600 12px monospace;color:#eab308}
@@ -288,6 +289,15 @@ function selectTarget(name){
 
 async function loadFleet(){
   AGENTS = await (await fetch('/api/agents')).json();
+  // Card order is an operator preference (localStorage), applied on every render so it
+  // survives the periodic refresh; unknown/new agents append in server order.
+  try{
+    const ord = JSON.parse(localStorage.getItem('aegis-cardorder')||'[]');
+    if(Array.isArray(ord) && ord.length){
+      AGENTS.sort((a,b)=>{ const ia=ord.indexOf(a.name), ib=ord.indexOf(b.name);
+        return (ia<0?1e9:ia)-(ib<0?1e9:ib); });
+    }
+  }catch(e){ /* preference only */ }
   // target dropdown
   $('#target').innerHTML = AGENTS.map(a=>'<option>'+a.name+'</option>').join('');
   const tm0=$('#targetMini'); if(tm0){ tm0.innerHTML = AGENTS.map(a=>'<option>'+a.name+'</option>').join(''); tm0.onchange = ()=>selectTarget(tm0.value); }
@@ -313,10 +323,36 @@ async function loadFleet(){
     $('#fleet').appendChild(card);
     probe(a);
   }
+  wireCardDrag();
   highlightCard($('#target').value);
 }
 
+// Drag a card to reposition it; the order persists (localStorage) and is re-applied
+// on every fleet refresh. Click-to-select is untouched (click fires only when no drag).
+function wireCardDrag(){
+  const wrap = document.getElementById('fleet');
+  wrap.querySelectorAll('.card').forEach(card => {
+    card.draggable = true;
+    card.ondragstart = (e) => { card.classList.add('dragging'); try{ e.dataTransfer.setData('text/plain', card.id); }catch(_e){} };
+    card.ondragend = () => {
+      card.classList.remove('dragging');
+      const order = [...wrap.querySelectorAll('.card')].map(c => c.id.replace(/^card-/,''));
+      localStorage.setItem('aegis-cardorder', JSON.stringify(order));
+    };
+    card.ondragover = (e) => {
+      e.preventDefault();
+      const dragging = wrap.querySelector('.card.dragging');
+      if(!dragging || dragging === card) return;
+      const r = card.getBoundingClientRect();
+      const before = (e.clientX - r.left) < r.width / 2;
+      wrap.insertBefore(dragging, before ? card : card.nextSibling);
+    };
+  });
+  wrap.ondragover = (e) => e.preventDefault();
+}
+
 async function probe(a){
+
   const color = await api(a.name,'GET','/color');
   const dot=$('#dot-'+a.name), rc=$('#rc-'+a.name), card=$('#card-'+a.name);
   const ok = color.status===200;
