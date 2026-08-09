@@ -473,9 +473,25 @@ async function invokeSkill(profile, method, route){
   let r;
   try{ r = await api(ag.name, (method||'GET').toUpperCase(), route); }
   catch(e){ live=false; clearInterval(tick); ui.meta.textContent='error'; ui.body.textContent=String(e&&e.message||e); return; }
+  // Async skill lane: a spawn route answers 202 {jobId} in milliseconds and runs the
+  // tool off its event loop, so the 10s relay ceiling now only ever covers a handshake.
+  // Poll /skill-status until terminal -- a 260s skill can no longer time out here, and
+  // the agent stays reachable (its own /color probe is not starved) for the whole run.
+  let jobId=null;
+  try{ const j0=JSON.parse(r.body||''); if(r.status===202 && j0 && j0.jobId) jobId=j0.jobId; }catch(_e){}
+  if(jobId){
+    const DEADLINE = Date.now() + 20*60*1000;
+    while(Date.now() < DEADLINE){
+      await new Promise(res=>setTimeout(res,1200));
+      let p; try{ p = await api(ag.name,'GET','/skill-status/'+encodeURIComponent(jobId)); }catch(_e){ continue; }
+      if(p.status===404){ r={status:404, body:JSON.stringify({output:'job '+jobId+' not found (agent restarted mid-run?)'})}; break; }
+      let pj=null; try{ pj=JSON.parse(p.body||''); }catch(_e){ continue; }
+      if(pj && pj.status==='done'){ r={status: pj.ok?200:500, body:p.body}; break; }
+    }
+  }
   live=false; clearInterval(tick);
   let body = r.body||'';
-  try{ const j=JSON.parse(body); body = (j.out!==undefined&&j.out!==null&&j.out!=='') ? j.out : (j.error||body); }catch(_e){}
+  try{ const j=JSON.parse(body); body = (j.output!==undefined&&j.output!==null&&j.output!=='') ? j.output : ((j.out!==undefined&&j.out!==null&&j.out!=='') ? j.out : (j.error||body)); }catch(_e){}
   ui.meta.textContent = 'HTTP '+r.status+' \u00b7 '+Math.round((Date.now()-t0)/1000)+'s';
   ui.body.textContent = String(body||'(empty)');
   setTimeout(loadFleet, 600);
