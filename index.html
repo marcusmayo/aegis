@@ -71,6 +71,8 @@
   #toolPanel.open{width:440px;opacity:1;padding:14px}
   #toolGrip{position:absolute;top:0;right:0;width:7px;height:100%;cursor:ew-resize;z-index:5}
   .card.dragging{opacity:.45;outline:2px dashed #666;outline-offset:2px}
+  .skchip{background:#1e1e1e;border:1px solid #2e2e2e;border-radius:4px;padding:1px 7px;cursor:pointer;color:#8ab4f8}
+  .skchip:hover{background:#252525}
   #toolGrip:hover{background:#26262666}
   .provrun{margin:8px 0;border:1px solid #262626;border-radius:8px;padding:8px;background:#0b0b0b}
   .provrun h4{margin:0 0 6px;font:600 12px monospace;color:#eab308}
@@ -444,7 +446,7 @@ async function fillProfileCheats(P){
     try{
       const r=await api(a.name,'GET','/skills');
       if(r.status===200 && skillsHtml===null){ const j=JSON.parse(r.body);
-        skillsHtml=((j.skills||[]).map(sk=>'  '+esc(sk.method)+' '+esc(sk.route)+(sk.summary?(' \u2014 '+esc(sk.summary)):'')).join('<br>')||'  (none declared)')+'<br><span class="muted">  listed from '+esc(a.name)+' \u00b7 run these on the agent\u2019s own page</span>';
+        skillsHtml=((j.skills||[]).map(sk=>'  <code class="skchip" onclick="invokeSkill(\''+esc(P)+'\',\''+esc(sk.route)+'\')" title="click to run on the profile member matching the Target (else its first instance); output lands in the console log">'+esc(sk.method)+' '+esc(sk.route)+'</code>'+(sk.summary?(' <span class="muted">\u2014 '+esc(sk.summary)+'</span>'):'')).join('<br>')||'  (none declared)')+'<br><span class="muted">  listed from '+esc(a.name)+' \u00b7 click a skill to run it here \u00b7 long-form runs still stream best on the agent\u2019s own page</span>';
       } else if(r.status===404){ sawLegacy=true; }
       if(dest===null){ const g=await api(a.name,'GET','/files/staged'); if(g.status===200){ try{ dest=JSON.parse(g.body).dest; }catch(e){} } }
     }catch(e){ /* unreachable member */ }
@@ -455,7 +457,24 @@ async function fillProfileCheats(P){
   h+='<u>import</u> <span class="muted">\u2014 every card: choose file \u2192 Stage \u2192 Staged \u2192 Process moves it to '+(dest?esc(dest):'the profile\u2019s stage_dest')+' and the pipeline takes over</span>';
   el.innerHTML=h;
 }
+// Run a listed skill from the panel: targets the current Target if it belongs to the
+// profile, else the profile's first instance. Full output lands as a console bubble.
+async function invokeSkill(profile, route){
+  const tgt = document.getElementById('target').value;
+  const ag = AGENTS.find(x=>x.name===tgt && x.profile===profile) || AGENTS.find(x=>x.profile===profile);
+  if(!ag){ return; }
+  const ui = chatBubble(ag.name, 'skill '+route);
+  ui.meta.textContent = 'running\u2026';
+  const r = await api(ag.name,'POST',route);
+  let body = r.body||'';
+  try{ const j=JSON.parse(body); body = (j.out!==undefined&&j.out!==null&&j.out!=='') ? j.out : (j.error||body); }catch(_e){}
+  ui.meta.textContent = 'HTTP '+r.status;
+  ui.body.textContent = String(body||'(empty)');
+  setTimeout(loadFleet, 600);
+}
+
 async function csExport(agent,p){
+
   try{
     const r=await fetch('/api/fetch/'+encodeURIComponent(agent)+'?path='+encodeURIComponent(p));
     if(!r.ok){ let t=''; try{ t=JSON.stringify(await r.json()); }catch{ t='HTTP '+r.status; } log(agent,'GET',p,{status:r.status,body:t}); return; }
@@ -650,7 +669,7 @@ async function policyLoad(){
   const a=document.getElementById('attOut'); a.textContent='loading\u2026';
   try{
     const r=await (await fetch('/api/attestations')).json();
-    a.textContent=(r.rows||[]).map(x=>`${x.ts}  [${x.source}] ${x.action||x.type||''} ${x.key||x.agent||''} ${x.from!==undefined?JSON.stringify(x.from)+'\u2192'+(x.to!==undefined?JSON.stringify(x.to):x.value||''):(x.value||'')}  ${x.outcome||''} ${x.actor?('\u00b7 '+x.actor):''}`).join('\n')||'(no attested actions yet)';
+    a.textContent=(r.rows||[]).map(x=>`${x.ts}  [${x.source}] ${x.action||x.type||''} ${x.key||x.agent||x.name||''} ${x.from!==undefined?JSON.stringify(x.from)+'\u2192'+(x.to!==undefined?JSON.stringify(x.to):x.value||''):(x.value||'')}${x.phrase?(' \u00ab'+x.phrase+'\u00bb'):''}  ${x.outcome||''} ${x.actor?('\u00b7 '+x.actor):''}`).join('\n')||'(no attested actions yet)';
   }catch(err){ a.textContent='attestations failed: '+err; }
 }
 function polHint(){
