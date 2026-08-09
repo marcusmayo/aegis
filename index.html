@@ -425,7 +425,7 @@ function ensureCheatRail(){
 let cheatOpen=false;
 function cheatToggle(){
   const p=document.getElementById('cheatPanel'); cheatOpen=!cheatOpen;
-  if(cheatOpen){ p.style.width='min('+((localStorage.getItem('aegis-panelw')||'560'))+'px,92vw)'; p.style.opacity='1'; buildCheats(); }
+  if(cheatOpen){ p.style.right='0'; p.style.width='min('+((localStorage.getItem('aegis-cheatw')||'560'))+'px,92vw)'; ensureCheatGrip(p); p.style.opacity='1'; buildCheats(); }
   else { p.style.width='0'; p.style.opacity='0'; }
 }
 function esc(x){ return String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -459,13 +459,13 @@ async function fillProfileCheats(P){
 }
 // Run a listed skill from the panel: targets the current Target if it belongs to the
 // profile, else the profile's first instance. Full output lands as a console bubble.
-async function invokeSkill(profile, route){
+async function invokeSkill(profile, method, route){
   const tgt = document.getElementById('target').value;
   const ag = AGENTS.find(x=>x.name===tgt && x.profile===profile) || AGENTS.find(x=>x.profile===profile);
   if(!ag){ return; }
-  const ui = chatBubble(ag.name, 'skill '+route);
+  const ui = chatBubble(ag.name, 'skill '+(method||'GET').toUpperCase()+' '+route);
   ui.meta.textContent = 'running\u2026';
-  const r = await api(ag.name,'POST',route);
+  const r = await api(ag.name, (method||'GET').toUpperCase(), route);
   let body = r.body||'';
   try{ const j=JSON.parse(body); body = (j.out!==undefined&&j.out!==null&&j.out!=='') ? j.out : (j.error||body); }catch(_e){}
   ui.meta.textContent = 'HTTP '+r.status;
@@ -847,7 +847,20 @@ function ensurePanelGrip(panel){
   };
   panel.appendChild(g);
 }
+function ensureCheatGrip(panel){
+  if(document.getElementById('cheatGrip')) return;
+  const g=document.createElement('div'); g.id='cheatGrip'; g.title='drag to resize';
+  g.style.cssText='position:absolute;top:0;left:0;width:7px;height:100%;cursor:ew-resize;z-index:5';
+  g.onmousedown=function(e){
+    e.preventDefault();
+    const move=function(ev){ const w=Math.min(Math.round(window.innerWidth*0.92),Math.max(380,window.innerWidth-ev.clientX)); panel.style.width=w+'px'; localStorage.setItem('aegis-cheatw',String(w)); };
+    const up=function(){ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); };
+    document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
+  };
+  panel.appendChild(g);
+}
 // Concurrent provisioning UI: one pane per run; the form frees immediately for the
+
 // next attested launch. The server enforces policy maxBatch on admission.
 function ensureProvRuns(){
   let c=document.getElementById('provRuns');
