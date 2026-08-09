@@ -69,6 +69,11 @@
   .tool-tab.active{outline:2px solid #fff;outline-offset:-3px}
   #toolPanel{position:fixed;left:40px;top:64px;z-index:60;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-left:none;border-radius:0 8px 8px 0;max-height:84vh;overflow-y:auto;box-shadow:6px 0 18px rgba(0,0,0,.45)}
   #toolPanel.open{width:440px;opacity:1;padding:14px}
+  #toolGrip{position:absolute;top:0;right:0;width:7px;height:100%;cursor:ew-resize;z-index:5}
+  #toolGrip:hover{background:#26262666}
+  .provrun{margin:8px 0;border:1px solid #262626;border-radius:8px;padding:8px;background:#0b0b0b}
+  .provrun h4{margin:0 0 6px;font:600 12px monospace;color:#eab308}
+  .provrun pre{max-height:200px;overflow:auto;margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--uifs,12px)}
   #toolPanel h3{margin:0 0 8px;font-size:14px}
   .tool-content{display:none}
   .tool-content.show{display:block}
@@ -382,7 +387,7 @@ function ensureCheatRail(){
 let cheatOpen=false;
 function cheatToggle(){
   const p=document.getElementById('cheatPanel'); cheatOpen=!cheatOpen;
-  if(cheatOpen){ p.style.width='min(560px,92vw)'; p.style.opacity='1'; buildCheats(); }
+  if(cheatOpen){ p.style.width='min('+((localStorage.getItem('aegis-panelw')||'560'))+'px,92vw)'; p.style.opacity='1'; buildCheats(); }
   else { p.style.width='0'; p.style.opacity='0'; }
 }
 function esc(x){ return String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -512,11 +517,13 @@ async function ensureWebModelAegis(a){
 let activeTool = null;
 function openTool(name){
   const panel = document.getElementById('toolPanel');
-  if(activeTool === name){ panel.classList.remove('open'); activeTool = null; document.querySelectorAll('.tool-tab').forEach(t=>t.classList.remove('active')); return; }
+  if(activeTool === name){ panel.classList.remove('open'); panel.style.width=''; activeTool = null; document.querySelectorAll('.tool-tab').forEach(t=>t.classList.remove('active')); return; }
   activeTool = name;
   document.querySelectorAll('.tool-content').forEach(c=>c.classList.remove('show'));
   document.getElementById('tc-'+name).classList.add('show');
   panel.classList.add('open');
+  const pw=localStorage.getItem('aegis-panelw'); if(pw) panel.style.width=pw+'px';
+  ensurePanelGrip(panel);
   document.querySelectorAll('.tool-tab').forEach(t=>t.classList.remove('active'));
   document.querySelector('.tool-tab.'+name).classList.add('active');
   if(name==='persona') personaLoad();
@@ -773,13 +780,50 @@ async function provisionSeed(){
   await streamPost('/api/provision/seed', { name, anthropicKey: $('#pvAnth').value.trim(), openrouterKey: $('#pvOrk').value.trim() }, 'provOut');
   $('#pvAnth').value = ''; $('#pvOrk').value = '';   // keys never linger in the DOM
 }
+// Panels are user-resizable: drag the right edge; width persists (shared with the cheatsheet).
+function ensurePanelGrip(panel){
+  if(document.getElementById('toolGrip')) return;
+  const g=document.createElement('div'); g.id='toolGrip'; g.title='drag to resize';
+  g.onmousedown=function(e){
+    e.preventDefault();
+    const move=function(ev){ const w=Math.min(940,Math.max(320,ev.clientX-40)); panel.style.width=w+'px'; localStorage.setItem('aegis-panelw',String(w)); };
+    const up=function(){ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); };
+    document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
+  };
+  panel.appendChild(g);
+}
+// Concurrent provisioning UI: one pane per run; the form frees immediately for the
+// next attested launch. The server enforces policy maxBatch on admission.
+function ensureProvRuns(){
+  let c=document.getElementById('provRuns');
+  if(!c){
+    const host=document.getElementById('provOut').parentNode;
+    const a=document.createElement('div'); a.id='provActive'; a.className='muted'; a.style.margin='8px 0 4px';
+    c=document.createElement('div'); c.id='provRuns';
+    host.appendChild(a); host.appendChild(c);
+  }
+  return c;
+}
+async function bumpActive(){
+  try{
+    const j=await (await fetch('/api/provision/active')).json();
+    const el=document.getElementById('provActive');
+    if(el&&j&&j.ok) el.textContent='concurrent runs: '+j.active.length+'/'+j.maxBatch+(j.active.length?('  \u2014 '+j.active.join(', ')):'');
+  }catch(e){ /* cosmetic */ }
+}
 async function provisionGo(){
   const name = $('#pvName').value.trim(); const attest = $('#pvAttest').value.trim();
-  const btn = $('#pvExec'); btn.disabled = true;
-  const out = $('#provOut'); out.textContent = 'provisioning\u2026 (build + bootstrap can take ~10 minutes; output streams live)\n\n';
-  await streamPost('/api/provision/go', { name, attest }, 'provOut', btn);
-  $('#pvAttest').value = ''; btn.disabled = true;
-  setTimeout(loadFleet, 800);
+  if(!name){ $('#provOut').textContent = 'enter an agent name'; return; }
+  const runs = ensureProvRuns();
+  const id = 'provrun-'+name.replace(/[^a-z0-9-]/g,'')+'-'+Date.now();
+  const pane=document.createElement('div'); pane.className='provrun';
+  const h=document.createElement('h4'); h.textContent=name;
+  const pre=document.createElement('pre'); pre.id=id; pre.textContent='provisioning\u2026 (build + bootstrap ~10 min; output streams live)\n\n';
+  pane.appendChild(h); pane.appendChild(pre);
+  runs.insertBefore(pane, runs.firstChild);
+  $('#pvAttest').value=''; $('#pvName').value=''; pvAttestCheck(); bumpActive();
+  await streamPost('/api/provision/go', { name, attest }, id, null);
+  bumpActive(); setTimeout(loadFleet, 800);
 }
 function decommissionPlan(){
   const name = $('#dcName').value.trim();

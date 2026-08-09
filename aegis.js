@@ -123,20 +123,41 @@ function contractFor(name, opts = {}) {
   return { file: tmp, temp: true };
 }
 
+// Concurrent provisioning admission: policy maxBatch caps SIMULTANEOUS up --go runs
+// (the per-run gate inside up.js only sees its own batch of 1). Registry is in-memory;
+// entries clear on stream close/error, so a crashed aegis restart clears the ledger too.
+const ACTIVE_GO = new Map();
+let _mbCache = { v: 2, t: 0 };
+function readMaxBatch() {
+  if (Date.now() - _mbCache.t < 10000) return _mbCache.v;
+  let v = 2;
+  try {
+    // Canonical loader (handles JSONC trailing comments + defaults) — never reparse policy here.
+    const pol = require(path.join(FLEET_IAC_ROOT, 'provision', 'lib', 'policy.js'))
+      .loadPolicy(path.join(FLEET_IAC_ROOT, 'provision', 'aegis.policy.jsonc'));
+    if (Number.isFinite(pol.maxBatch) && pol.maxBatch > 0) v = pol.maxBatch;
+  } catch { /* default 2 */ }
+  _mbCache = { v, t: Date.now() };
+  return v;
+}
+
 // Run fleetctl with the host env (CF_* etc.) inherited; AEGIS_CONFIG pinned to our config.
 // fleetctl emits plain text when piped (util paint checks isTTY), so no ANSI to strip.
-function runFleetctl(args) {
+async function runFleetctl(args) {
   if (!FLEET_IAC_ROOT) return { code: 2, out: 'FLEET_IAC_ROOT not set — start aegis.js with FLEET_IAC_ROOT=<path to agent-fleet-iac>.' };
   const fp = fleetctlPath();
   if (!fs.existsSync(fp)) return { code: 2, out: `fleetctl not found at ${fp} — check FLEET_IAC_ROOT.` };
-  const r = spawnSync('node', [fp, ...args], {
-    cwd: FLEET_IAC_ROOT,
-    env: { ...process.env, CF_OPERATOR_EMAIL: operatorEmail(), AEGIS_CONFIG: CFG, NO_COLOR: '1' },
-    encoding: 'utf8',
-    maxBuffer: 8 * 1024 * 1024,
+  return await new Promise((resolve) => {
+    const child = spawn('node', [fp, ...args], {
+      cwd: FLEET_IAC_ROOT,
+      env: { ...process.env, CF_OPERATOR_EMAIL: operatorEmail(), AEGIS_CONFIG: CFG, NO_COLOR: '1' },
+    });
+    let so = '', se = '';
+    child.stdout.on('data', (d) => { so += d; });
+    child.stderr.on('data', (d) => { se += d; });
+    child.on('error', (e) => resolve({ code: 1, out: 'spawn error: ' + e.message }));
+    child.on('close', (code) => resolve({ code: code == null ? 1 : code, out: so + (se ? (so ? '\n' : '') + se : '') }));
   });
-  const out = (r.stdout || '') + (r.stderr ? (r.stdout ? '\n' : '') + r.stderr : '');
-  return { code: r.status == null ? 1 : r.status, out };
 }
 
 function sendJson(res, obj, status = 200) { res.statusCode = status; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(obj)); }
@@ -179,7 +200,7 @@ function streamFleetctl(res, args, extraEnv, onDone) {
   child.stdout.on('data', (d) => { lastOut = Date.now(); res.write(d); });
   child.stderr.on('data', (d) => { lastOut = Date.now(); res.write(d); });
   child.on('close', (code) => { clearInterval(beat); try { if (onDone) onDone(code); } catch { /* ignore */ } res.write('\n[fleetctl exit ' + code + ']\n'); res.end(); });
-  child.on('error', (e) => { clearInterval(beat); res.write('\n[spawn error] ' + e.message + '\n'); res.end(); });
+  child.on('error', (e) => { clearInterval(beat); try { if (onDone) onDone(-1); } catch { /* ignore */ } res.write('\n[spawn error] ' + e.message + '\n'); res.end(); });
 }
 
 // Panel-facing cleanup for plan output: the panel has its own Execute UI, so strip the
@@ -222,7 +243,7 @@ const server = http.createServer(async (req, res) => {
   // --- Policy tab: attested governance gate (P2b). The fleetctl CLI is the ONLY
   // gate -- Aegis adds no second validator, it surfaces the CLI's verdict verbatim.
   if (req.url === '/api/policy/show' && req.method === 'GET') {
-    const r = runFleetctl(['policy', 'show']);
+    const r = await runFleetctl(['policy', 'show']);
     return sendJson(res, { ok: r.code === 0, out: panelClean(r.out) });
   }
   if (req.url === '/api/policy/set' && req.method === 'POST') {
@@ -230,7 +251,7 @@ const server = http.createServer(async (req, res) => {
     const key = String(b.key || '').trim();
     const value = String(b.value || '').trim();
     const attest = String(b.attest || '');
-    const r = runFleetctl(['policy', 'set', key, value, '--attest', attest]);
+    const r = await runFleetctl(['policy', 'set', key, value, '--attest', attest]);
     audit({ action: 'policy-set', key, value, outcome: r.code === 0 ? 'ok' : 'refused-or-error', via: 'panel' });
     return sendJson(res, { ok: r.code === 0, code: r.code, out: panelClean(r.out) });
   }
@@ -251,13 +272,16 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Provisioning plan (READ-ONLY): preview `up` + the caps/budget gate for a proposed agent.
+  if (req.url === '/api/provision/active' && req.method === 'GET') {
+    return sendJson(res, { ok: true, active: [...ACTIVE_GO.keys()], maxBatch: readMaxBatch() });
+  }
   if (req.url === '/api/provision/plan' && req.method === 'POST') {
     const b = await readBody(req);
     const name = String(b.name || '').trim();
     if (!NAME_RE.test(name)) return sendJson(res, { ok: false, out: 'invalid agent name — must match ^[a-z][a-z0-9-]{1,23}$' }, 400);
     const usePersisted = !!b.usePersisted;
     const { file, temp } = contractFor(name, { forceTemp: !usePersisted, profile: b.profile, domain: b.domain, operatorEmail: String(b.operatorEmail || '').trim() });
-    const r = runFleetctl(['plan', file]);
+    const r = await runFleetctl(['plan', file]);
     if (temp) { try { fs.unlinkSync(file); } catch { /* best effort */ } }
     audit({ action: 'provision-plan', name, code: r.code });
     return sendJson(res, { ok: r.code === 0, code: r.code, out: panelClean(r.out) });
@@ -323,8 +347,18 @@ const server = http.createServer(async (req, res) => {
       audit({ action: 'provision-go', name, actor, phrase: attest, outcome: 'refused: no contract' });
       return sendJson(res, { ok: false, error: `no agents/${name}.agent.jsonc — write the contract first` }, 400);
     }
-    audit({ action: 'provision-go', name, actor, phrase: attest, outcome: 'started' });
-    return streamFleetctl(res, ['up', persisted, '--go'], null, (code) => audit({ action: 'provision-go', name, actor, phrase: attest, outcome: code === 0 ? 'done' : 'exit ' + code }));
+    if (ACTIVE_GO.has(name)) {
+      audit({ action: 'provision-go', name, actor, phrase: attest, outcome: 'refused: duplicate active run' });
+      return sendJson(res, { ok: false, error: 'a provisioning run for "' + name + '" is already active' }, 409);
+    }
+    const mb = readMaxBatch();
+    if (ACTIVE_GO.size >= mb) {
+      audit({ action: 'provision-go', name, actor, phrase: attest, outcome: 'refused: maxBatch (' + ACTIVE_GO.size + ' active, cap ' + mb + ')' });
+      return sendJson(res, { ok: false, error: 'REFUSED — ' + ACTIVE_GO.size + ' provisioning run(s) already active; policy maxBatch=' + mb }, 429);
+    }
+    ACTIVE_GO.set(name, Date.now());
+    audit({ action: 'provision-go', name, actor, phrase: attest, outcome: 'started (' + ACTIVE_GO.size + '/' + mb + ' concurrent)' });
+    return streamFleetctl(res, ['up', persisted, '--go'], null, (code) => { ACTIVE_GO.delete(name); audit({ action: 'provision-go', name, actor, phrase: attest, outcome: code === 0 ? 'done' : 'exit ' + code }); });
   }
   // Binary passthrough for the agent EXPORT routes only (xlsx downloads the JSON
   // console proxy would corrupt). Tight allowlist: path must start with /export.
@@ -350,7 +384,7 @@ const server = http.createServer(async (req, res) => {
   }
   // Protection state (authoritative = the workstation policy via the fleetctl CLI).
   if (req.url === '/api/policy/protected' && req.method === 'GET') {
-    const r = runFleetctl(['policy', 'show', '--json']);
+    const r = await runFleetctl(['policy', 'show', '--json']);
     let list = []; try { list = JSON.parse(r.out || '{}').protectedAgents || []; } catch { /* unreadable */ }
     return sendJson(res, { ok: r.code === 0, protectedAgents: list });
   }
@@ -363,14 +397,14 @@ const server = http.createServer(async (req, res) => {
     const name = String(b.name || '').trim();
     const attest = String(b.attest || '').trim();
     if (!NAME_RE.test(name)) return sendJson(res, { ok: false, error: 'invalid agent name' }, 400);
-    const cur = runFleetctl(['policy', 'show', '--json']);
+    const cur = await runFleetctl(['policy', 'show', '--json']);
     let list; try { list = JSON.parse(cur.out || '{}').protectedAgents || []; } catch { return sendJson(res, { ok: false, error: 'cannot read policy (fleetctl policy show --json failed)' }, 500); }
     const on = list.includes(name);
-    const r = runFleetctl(['policy', on ? 'unprotect' : 'protect', name, '--attest', attest]);
+    const r = await runFleetctl(['policy', on ? 'unprotect' : 'protect', name, '--attest', attest]);
     audit({ action: 'protect-toggle', name, verb: on ? 'unprotect' : 'protect', outcome: r.code === 0 ? 'ok' : 'exit ' + r.code });
     let next = list;
     if (r.code === 0) {
-      const rr = runFleetctl(['policy', 'show', '--json']);
+      const rr = await runFleetctl(['policy', 'show', '--json']);
       try { next = JSON.parse(rr.out || '{}').protectedAgents || list; } catch { /* keep prior */ }
       const agent = agentByName(name); if (agent) { try { callAgent(agent, 'POST', '/protection', { protected: !on }); } catch { /* unreachable */ } }
     }
@@ -382,7 +416,7 @@ const server = http.createServer(async (req, res) => {
     const name = String(b.name || '').trim();
     if (!NAME_RE.test(name)) return sendJson(res, { ok: false, out: 'invalid agent name — must match ^[a-z][a-z0-9-]{1,23}$' }, 400);
     const { file, temp } = contractFor(name, { profile: b.profile, domain: b.domain });
-    const r = runFleetctl(['decommission', file]); // no --go => read-only discovery
+    const r = await runFleetctl(['decommission', file]); // no --go => read-only discovery
     if (temp) { try { fs.unlinkSync(file); } catch { /* best effort */ } }
     audit({ action: 'decommission-plan', name, code: r.code });
     return sendJson(res, { ok: r.code === 0, code: r.code, out: panelClean(r.out) });
