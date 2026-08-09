@@ -73,6 +73,8 @@
   .card.dragging{opacity:.45;outline:2px dashed #666;outline-offset:2px}
   .skchip{background:#1e1e1e;border:1px solid #2e2e2e;border-radius:4px;padding:1px 7px;cursor:pointer;color:#8ab4f8}
   .skchip:hover{background:#252525}
+  .spin{display:inline-block;width:9px;height:9px;border:2px solid #444;border-top-color:#eab308;border-radius:50%;animation:aspin .8s linear infinite;vertical-align:-1px;margin-right:6px}
+  @keyframes aspin{to{transform:rotate(360deg)}}
   #toolGrip:hover{background:#26262666}
   .provrun{margin:8px 0;border:1px solid #262626;border-radius:8px;padding:8px;background:#0b0b0b}
   .provrun h4{margin:0 0 6px;font:600 12px monospace;color:#eab308}
@@ -465,13 +467,16 @@ async function invokeSkill(profile, method, route){
   const ag = AGENTS.find(x=>x.name===tgt && x.profile===profile) || AGENTS.find(x=>x.profile===profile);
   if(!ag){ return; }
   const ui = chatBubble(ag.name, 'skill '+(method||'GET').toUpperCase()+' '+route);
-  ui.meta.textContent = 'running\u2026';
+  const t0 = Date.now(); let live = true;
+  const tick = setInterval(function(){ if(live) ui.meta.innerHTML = '<span class="spin"></span>running \u00b7 ' + Math.round((Date.now()-t0)/1000) + 's'; }, 500);
+  ui.meta.innerHTML = '<span class="spin"></span>running';
   let r;
   try{ r = await api(ag.name, (method||'GET').toUpperCase(), route); }
-  catch(e){ ui.meta.textContent='error'; ui.body.textContent=String(e&&e.message||e); return; }
+  catch(e){ live=false; clearInterval(tick); ui.meta.textContent='error'; ui.body.textContent=String(e&&e.message||e); return; }
+  live=false; clearInterval(tick);
   let body = r.body||'';
   try{ const j=JSON.parse(body); body = (j.out!==undefined&&j.out!==null&&j.out!=='') ? j.out : (j.error||body); }catch(_e){}
-  ui.meta.textContent = 'HTTP '+r.status;
+  ui.meta.textContent = 'HTTP '+r.status+' \u00b7 '+Math.round((Date.now()-t0)/1000)+'s';
   ui.body.textContent = String(body||'(empty)');
   setTimeout(loadFleet, 600);
 }
@@ -760,19 +765,24 @@ function chatSend(){
   if(!p) return;
   document.getElementById('prompt').value = '';
   const ui = chatBubble(agent, p);
-  ui.meta.textContent = 'connecting...';
+  // Live liveness: spinner + phase + elapsed seconds until done/error, so a long
+  // model turn is visibly ALIVE rather than possibly hung (mirrors the webchats).
+  const t0 = Date.now(); let phase = 'connecting'; let live = true;
+  const paint = function(){ if(live) ui.meta.innerHTML = '<span class="spin"></span>' + phase + ' \u00b7 ' + Math.round((Date.now()-t0)/1000) + 's'; };
+  const tick = setInterval(paint, 500); paint();
+  const finish = function(txt){ live = false; clearInterval(tick); ui.meta.textContent = txt + ' \u00b7 ' + Math.round((Date.now()-t0)/1000) + 's'; };
   const ws = new WebSocket(wsBase() + '/ws/agent/' + encodeURIComponent(agent));
-  ws.onopen = function(){ ui.meta.textContent = 'sent'; ws.send(JSON.stringify({ prompt: p })); };
+  ws.onopen = function(){ phase = 'sent'; ws.send(JSON.stringify({ prompt: p })); };
   ws.onmessage = function(ev){
     var f; try { f = JSON.parse(ev.data); } catch(e) { return; }
-    if(f.type==='start') ui.meta.textContent = 'thinking...';
-    else if(f.type==='step') ui.meta.textContent = f.text || 'working...';
+    if(f.type==='start') phase = 'thinking';
+    else if(f.type==='step') phase = (f.text || 'working');
     else if(f.type==='token') ui.body.textContent += (f.text||'');
-    else if(f.type==='error'){ ui.meta.textContent = 'error'; ui.body.textContent += '\n[error] '+(f.text||''); }
-    else if(f.type==='done'){ ui.meta.textContent = 'done'; try{ ws.close(); }catch(e){} }
+    else if(f.type==='error'){ finish('error'); ui.body.textContent += '\n[error] '+(f.text||''); }
+    else if(f.type==='done'){ finish('done'); try{ ws.close(); }catch(e){} }
   };
-  ws.onerror = function(){ ui.meta.textContent = 'ws error'; };
-  ws.onclose = function(){ if(ui.meta.textContent==='sent'||ui.meta.textContent==='thinking...') ui.meta.textContent='closed'; };
+  ws.onerror = function(){ finish('ws error'); };
+  ws.onclose = function(){ if(live) finish('closed'); };
 }
 
 async function planPost(url, body, outId){
