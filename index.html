@@ -446,7 +446,7 @@ async function fillProfileCheats(P){
     try{
       const r=await api(a.name,'GET','/skills');
       if(r.status===200 && skillsHtml===null){ const j=JSON.parse(r.body);
-        skillsHtml=((j.skills||[]).map(sk=>'  <code class="skchip" onclick="invokeSkill(\''+esc(P)+'\',\''+esc(sk.route)+'\')" title="click to run on the profile member matching the Target (else its first instance); output lands in the console log">'+esc(sk.method)+' '+esc(sk.route)+'</code>'+(sk.summary?(' <span class="muted">\u2014 '+esc(sk.summary)+'</span>'):'')).join('<br>')||'  (none declared)')+'<br><span class="muted">  listed from '+esc(a.name)+' \u00b7 click a skill to run it here \u00b7 long-form runs still stream best on the agent\u2019s own page</span>';
+        skillsHtml=((j.skills||[]).map(sk=>'  <code class="skchip" onclick="invokeSkill(\''+esc(P)+'\',\''+esc(sk.method)+'\',\''+esc(sk.route)+'\')" title="click to run on the profile member matching the Target (else its first instance); output lands in the console log">'+esc(sk.method)+' '+esc(sk.route)+'</code>'+(sk.summary?(' <span class="muted">\u2014 '+esc(sk.summary)+'</span>'):'')).join('<br>')||'  (none declared)')+'<br><span class="muted">  listed from '+esc(a.name)+' \u00b7 click a skill to run it here \u00b7 long-form runs still stream best on the agent\u2019s own page</span>';
       } else if(r.status===404){ sawLegacy=true; }
       if(dest===null){ const g=await api(a.name,'GET','/files/staged'); if(g.status===200){ try{ dest=JSON.parse(g.body).dest; }catch(e){} } }
     }catch(e){ /* unreachable member */ }
@@ -460,12 +460,15 @@ async function fillProfileCheats(P){
 // Run a listed skill from the panel: targets the current Target if it belongs to the
 // profile, else the profile's first instance. Full output lands as a console bubble.
 async function invokeSkill(profile, method, route){
+  if(route===undefined){ route=method; method='GET'; }   // tolerate a 2-arg caller from a stale cached page
   const tgt = document.getElementById('target').value;
   const ag = AGENTS.find(x=>x.name===tgt && x.profile===profile) || AGENTS.find(x=>x.profile===profile);
   if(!ag){ return; }
   const ui = chatBubble(ag.name, 'skill '+(method||'GET').toUpperCase()+' '+route);
   ui.meta.textContent = 'running\u2026';
-  const r = await api(ag.name, (method||'GET').toUpperCase(), route);
+  let r;
+  try{ r = await api(ag.name, (method||'GET').toUpperCase(), route); }
+  catch(e){ ui.meta.textContent='error'; ui.body.textContent=String(e&&e.message||e); return; }
   let body = r.body||'';
   try{ const j=JSON.parse(body); body = (j.out!==undefined&&j.out!==null&&j.out!=='') ? j.out : (j.error||body); }catch(_e){}
   ui.meta.textContent = 'HTTP '+r.status;
