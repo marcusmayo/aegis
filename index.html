@@ -213,12 +213,12 @@
     <div class="aud-pane">
       <h4 style="color:#e5e7eb">Control plane &middot; aegis-audit.jsonl</h4>
       <div class="muted" style="font-size:11px" id="audAegisChain">chain: &mdash;</div>
-      <pre class="planout" id="audAegisOut" style="max-height:220px"><span class="muted">loading&hellip;</span></pre>
+      <pre class="planout" id="audAegisOut" style="height:240px;max-height:none"><span class="muted">loading&hellip;</span></pre>
     </div>
     <div class="aud-pane">
       <h4 style="color:#8ab4f8">Agents &middot; logs/audit.jsonl (per agent)</h4>
       <div class="muted" style="font-size:11px">Each agent verifies only its own chain. Coverage compares its job records against its logged skill-runs &mdash; an intact chain that records nothing is not a pass.</div>
-      <pre class="planout" id="audAgentOut" style="max-height:260px"><span class="muted">loading&hellip;</span></pre>
+      <pre class="planout" id="audAgentOut" style="height:300px;max-height:none"><span class="muted">loading&hellip;</span></pre>
     </div>
   </div>
   <div class="tool-content" id="tc-policy">
@@ -439,8 +439,8 @@ function ensureCheatRail(){
   t.style.cssText='position:fixed;right:0;top:180px;z-index:70;background:#334155;color:#fff;writing-mode:vertical-rl;padding:12px 6px;border-radius:8px 0 0 8px;cursor:pointer;font:600 13px system-ui;letter-spacing:.06em;user-select:none';
   t.onclick=cheatToggle; document.body.appendChild(t);
   const p=document.createElement('div'); p.id='cheatPanel';
-  p.style.cssText='position:fixed;right:0;top:64px;z-index:69;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-right:none;border-radius:8px 0 0 8px;max-height:84vh;box-shadow:-6px 0 18px rgba(0,0,0,.45)';
-  p.innerHTML='<div id="cheatBody" style="width:min(560px,92vw);max-height:84vh;overflow:auto;padding:14px;font:var(--uifs,12px)/1.55 ui-monospace,monospace;color:#cfcfcf;white-space:pre-wrap"></div>';
+  p.style.cssText='position:fixed;right:0;top:64px;z-index:69;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-right:none;border-radius:8px 0 0 8px;max-height:none;box-shadow:-6px 0 18px rgba(0,0,0,.45)';
+  p.innerHTML='<div id="cheatBody" style="width:100%;height:100%;box-sizing:border-box;overflow:auto;padding:14px;font:var(--uifs,12px)/1.55 ui-monospace,monospace;color:#cfcfcf;white-space:pre-wrap"></div>';
   document.body.appendChild(p);
 }
 // ---- Right-side Audit rail, stacked beneath the Cheatsheet. The pane markup is the
@@ -456,9 +456,9 @@ function ensureAuditRail(){
   t.style.cssText='position:fixed;right:0;top:'+top+'px;z-index:70;background:#e5e7eb;color:#111;writing-mode:vertical-rl;padding:12px 6px;border-radius:8px 0 0 8px;cursor:pointer;font:600 13px system-ui;letter-spacing:.06em;user-select:none';
   t.onclick=auditToggle; document.body.appendChild(t);
   const p=document.createElement('div'); p.id='auditPanel';
-  p.style.cssText='position:fixed;right:0;top:64px;z-index:69;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-right:none;border-radius:8px 0 0 8px;max-height:84vh;box-shadow:-6px 0 18px rgba(0,0,0,.45)';
+  p.style.cssText='position:fixed;right:0;top:64px;z-index:69;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-right:none;border-radius:8px 0 0 8px;max-height:none;box-shadow:-6px 0 18px rgba(0,0,0,.45)';
   const body=document.createElement('div'); body.id='auditBody';
-  body.style.cssText='width:min(560px,92vw);max-height:84vh;overflow:auto;padding:14px';
+  body.style.cssText='width:100%;height:100%;box-sizing:border-box;overflow:auto;padding:14px';
   const pane=document.getElementById('tc-audit');
   if(pane){ pane.classList.add('show'); body.appendChild(pane); }
   p.appendChild(body); document.body.appendChild(p);
@@ -468,27 +468,56 @@ function auditToggle(){
   const p=document.getElementById('auditPanel'); auditOpen=!auditOpen;
   if(auditOpen){
     if(cheatOpen) cheatToggle();          // one right-hand panel at a time
-    p.style.width='min('+((localStorage.getItem('aegis-cheatw')||'560'))+'px,92vw)';
-    ensureAuditGrip(p); p.style.opacity='1'; auditLoad();
+    const sz=panelSize(); p.style.width=sz.w; p.style.height=sz.h;
+    ensurePanelGrips(p,'audit'); p.style.opacity='1'; auditLoad();
   } else { p.style.width='0'; p.style.opacity='0'; }
 }
-function ensureAuditGrip(panel){
-  if(document.getElementById('auditGrip')) return;
-  const g=document.createElement('div'); g.id='auditGrip'; g.title='drag to resize';
-  g.style.cssText='position:absolute;top:0;left:0;width:7px;height:100%;cursor:ew-resize;z-index:5';
-  g.onmousedown=function(e){
-    e.preventDefault();
-    const move=function(ev){ const w=Math.min(Math.round(window.innerWidth*0.92),Math.max(380,window.innerWidth-ev.clientX)); panel.style.width=w+'px'; localStorage.setItem('aegis-cheatw',String(w)); };
-    const up=function(){ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); };
-    document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
-  };
-  panel.appendChild(g);
+// Both right-hand panels resize on two axes: the LEFT edge sets width, the BOTTOM edge
+// sets height, and both persist. The inner body is width/height 100% so it tracks the
+// panel -- previously the body was pinned at 560px while the panel grew, and because the
+// panel is anchored right, widening it walked the fixed-width content across the screen
+// instead of revealing more of it.
+function ensurePanelGrips(panel, prefix){
+  const wKey='aegis-cheatw', hKey='aegis-cheath';
+  if(!document.getElementById(prefix+'GripW')){
+    const g=document.createElement('div'); g.id=prefix+'GripW'; g.title='drag to set width';
+    g.style.cssText='position:absolute;top:0;left:0;width:7px;height:100%;cursor:ew-resize;z-index:6';
+    g.onmousedown=function(e){
+      e.preventDefault();
+      const move=function(ev){
+        const w=Math.min(Math.round(window.innerWidth*0.96),Math.max(380,window.innerWidth-ev.clientX));
+        panel.style.width=w+'px'; localStorage.setItem(wKey,String(w));
+      };
+      const up=function(){ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); };
+      document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
+    };
+    panel.appendChild(g);
+  }
+  if(!document.getElementById(prefix+'GripH')){
+    const g=document.createElement('div'); g.id=prefix+'GripH'; g.title='drag to set height';
+    g.style.cssText='position:absolute;left:0;bottom:0;height:8px;width:100%;cursor:ns-resize;z-index:6';
+    g.onmousedown=function(e){
+      e.preventDefault();
+      const top=panel.getBoundingClientRect().top;
+      const move=function(ev){
+        const h=Math.min(Math.round(window.innerHeight-top-8),Math.max(200,Math.round(ev.clientY-top)));
+        panel.style.height=h+'px'; localStorage.setItem(hKey,String(h));
+      };
+      const up=function(){ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); };
+      document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
+    };
+    panel.appendChild(g);
+  }
+}
+function panelSize(){
+  return { w:'min('+((localStorage.getItem('aegis-cheatw')||'560'))+'px,96vw)',
+           h:(localStorage.getItem('aegis-cheath')||Math.round(window.innerHeight*0.8))+'px' };
 }
 let cheatOpen=false;
 function cheatToggle(){
   const p=document.getElementById('cheatPanel'); cheatOpen=!cheatOpen;
   if(cheatOpen && auditOpen) auditToggle();
-  if(cheatOpen){ p.style.right='0'; p.style.width='min('+((localStorage.getItem('aegis-cheatw')||'560'))+'px,92vw)'; ensureCheatGrip(p); p.style.opacity='1'; buildCheats(); }
+  if(cheatOpen){ const sz=panelSize(); p.style.right='0'; p.style.width=sz.w; p.style.height=sz.h; ensurePanelGrips(p,'cheat'); p.style.opacity='1'; buildCheats(); }
   else { p.style.width='0'; p.style.opacity='0'; }
 }
 function esc(x){ return String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -852,13 +881,24 @@ async function sendRaw(){
 (function(){
   const host = document.querySelector('.log') ? document.querySelector('.log').parentNode : document.body;
   const bar = document.createElement('div');
-  bar.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin:10px 0;width:100%;max-width:100%';
+  // The bar spanned the full viewport, so Send/New sat at the screen's right edge --
+  // misaligned with the (user-resizable) answer box, and hidden the moment a right-hand
+  // panel overlaid that edge. It now tracks the answer box's own width, so the buttons
+  // share its right edge at every size and stay clear of the panels.
+  bar.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin:10px 0;max-width:100%';
   bar.innerHTML =
     '<input id="prompt" placeholder="prompt to selected agent (uses the Target above)" '
     + 'style="flex:1;min-width:240px;background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:6px;padding:7px 10px;font-family:monospace;font-size:var(--uifs,12px)">'
     + '<button id="chatSend" class="send">Send prompt</button>'
     + '<button class="send" onclick="newConversation()" title="Start a fresh conversation on the selected agent (shared with its webchat)">&#8635; New</button>';
   host.insertBefore(bar, document.getElementById('log'));
+  (function(){
+    const logEl=document.getElementById('log');
+    const sync=function(){ const w=logEl.offsetWidth; if(w>0) bar.style.width=w+'px'; };
+    sync();
+    if(window.ResizeObserver){ new ResizeObserver(sync).observe(logEl); }
+    window.addEventListener('resize', sync);
+  })();
   ensureCheatRail();
   ensureAuditRail();
   document.getElementById('chatSend').onclick = chatSend;
@@ -987,18 +1027,6 @@ function ensurePanelGrip(panel){
   g.onmousedown=function(e){
     e.preventDefault();
     const move=function(ev){ const w=Math.min(940,Math.max(320,ev.clientX-40)); panel.style.width=w+'px'; localStorage.setItem('aegis-panelw',String(w)); };
-    const up=function(){ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); };
-    document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
-  };
-  panel.appendChild(g);
-}
-function ensureCheatGrip(panel){
-  if(document.getElementById('cheatGrip')) return;
-  const g=document.createElement('div'); g.id='cheatGrip'; g.title='drag to resize';
-  g.style.cssText='position:absolute;top:0;left:0;width:7px;height:100%;cursor:ew-resize;z-index:5';
-  g.onmousedown=function(e){
-    e.preventDefault();
-    const move=function(ev){ const w=Math.min(Math.round(window.innerWidth*0.92),Math.max(380,window.innerWidth-ev.clientX)); panel.style.width=w+'px'; localStorage.setItem('aegis-cheatw',String(w)); };
     const up=function(){ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); };
     document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
   };
