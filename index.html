@@ -66,6 +66,7 @@
   .tool-tab.dec{background:#ef4444}
   .tool-tab.persona{background:#8b5cf6}
   .tool-tab.policy{background:#10b981;color:#052e22}
+  .tool-tab.a2a{background:#0ea5e9;color:#04212e}
   .tool-tab.audit{background:#e5e7eb;color:#111}
   .aud-ok{color:#22c55e;font-weight:700}.aud-bad{color:#ef4444;font-weight:700}
   .aud-pane{border:1px solid #232323;border-radius:8px;padding:8px;margin-top:8px;background:#0b0b0b}
@@ -137,6 +138,7 @@
   <button class="tool-tab persona" onclick="openTool('persona')">&#9787; Persona</button>
   <button class="tool-tab adv"  onclick="openTool('adv')">&#9998; Advanced</button>
   <button class="tool-tab policy" onclick="openTool('policy')">&#9878; Policy</button>
+  <button class="tool-tab a2a" onclick="openTool('a2a')">&#8644; Relay</button>
   <button class="tool-tab prov" onclick="openTool('prov')">&#9881; Provisioning</button>
   <button class="tool-tab dec"  onclick="openTool('dec')">&#9760; Decommission</button>
 </div>
@@ -220,6 +222,24 @@
       <div class="muted" style="font-size:11px">Each agent verifies only its own chain. Coverage compares its job records against its logged skill-runs &mdash; an intact chain that records nothing is not a pass.</div>
       <pre class="planout" id="audAgentOut" style="height:300px;max-height:none"><span class="muted">loading&hellip;</span></pre>
     </div>
+  </div>
+  <div class="tool-content" id="tc-a2a">
+    <h3 style="margin:4px 0 8px">Relay <span class="muted">&mdash; agent to agent, operator-initiated</span></h3>
+    <div class="muted" style="font-size:var(--uifs,12px);margin-bottom:8px">Aegis carries the message; neither agent can reach the other. The directed pair must be allowlisted in policy <b>a2aPairs</b>, and the send is attested. Text only &mdash; describe any diagram, slide, or image in the message itself. It lands in the target&rsquo;s review queue as third-party information, never as an instruction.</div>
+    <div class="tool-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <select id="a2aFrom" onchange="a2aHint()"></select>
+      <span class="muted">&rarr;</span>
+      <select id="a2aTo" onchange="a2aHint()"></select>
+      <button onclick="a2aLoad()">Refresh pairs</button>
+    </div>
+    <div class="muted" style="font-size:11px;margin:4px 0" id="a2aPairsLine">allowed pairs: &mdash;</div>
+    <textarea id="a2aText" rows="7" style="width:100%;box-sizing:border-box;background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:6px;padding:7px 10px;font-family:monospace;font-size:var(--uifs,12px)" placeholder="message to relay &mdash; include descriptions of any images, diagrams or slides"></textarea>
+    <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      <input id="a2aAttest" style="flex:1;min-width:260px" placeholder="type the attestation sentence">
+      <button onclick="a2aSend()">Attest + Relay</button>
+    </div>
+    <div class="muted" style="font-size:var(--uifs,12px);margin-top:4px" id="a2aHintLine">required: I approve relaying &lt;from&gt; to &lt;to&gt;</div>
+    <pre class="planout" id="a2aOut" style="height:170px;max-height:none"><span class="muted">relay result appears here&hellip;</span></pre>
   </div>
   <div class="tool-content" id="tc-policy">
     <h3 style="margin:4px 0 8px">Policy &middot; attested governance gate</h3>
@@ -697,6 +717,7 @@ function openTool(name){
   document.querySelector('.tool-tab.'+name).classList.add('active');
   if(name==='persona') personaLoad();
   if(name==='policy') policyLoad();
+  if(name==='a2a') a2aLoad();
 }
 
 // Advanced API console: a curated dropdown of the agent's real endpoints, each with a
@@ -828,6 +849,50 @@ async function auditLoad(){
     }catch(e){ return n+' \u2014 UNREACHABLE ('+e+')'; }
   }));
   ag.textContent=blocks.join('\n\n');
+}
+
+// Relay pane. The attestation sentence is shown live for the CURRENT pair, so the
+// operator types what they are actually approving rather than a remembered phrase --
+// switching either dropdown changes the required sentence.
+function a2aHint(){
+  const f=document.getElementById('a2aFrom').value||'<from>';
+  const t=document.getElementById('a2aTo').value||'<to>';
+  document.getElementById('a2aHintLine').textContent='required: I approve relaying '+f+' to '+t;
+}
+async function a2aLoad(){
+  const names=(typeof AGENTS!=='undefined'&&AGENTS?AGENTS:[]).map(a=>a.name);
+  for(const id of ['a2aFrom','a2aTo']){
+    const el=document.getElementById(id); if(!el) continue;
+    const keep=el.value;
+    el.innerHTML=names.map(n=>'<option>'+n+'</option>').join('');
+    if(keep&&names.includes(keep)) el.value=keep;
+  }
+  if(names.length>1&&document.getElementById('a2aTo').value===document.getElementById('a2aFrom').value){
+    document.getElementById('a2aTo').value=names.find(n=>n!==document.getElementById('a2aFrom').value);
+  }
+  try{
+    const r=await (await fetch('/api/a2a/pairs')).json();
+    const p=(r.pairs||[]);
+    document.getElementById('a2aPairsLine').textContent = p.length
+      ? ('allowed pairs: '+p.join('  \u00b7  '))
+      : 'allowed pairs: none \u2014 relaying is off until a pair is attested in Policy (a2aPairs)';
+  }catch(e){ document.getElementById('a2aPairsLine').textContent='pairs unreadable: '+e; }
+  a2aHint();
+}
+async function a2aSend(){
+  const out=document.getElementById('a2aOut');
+  const from=document.getElementById('a2aFrom').value, to=document.getElementById('a2aTo').value;
+  const text=document.getElementById('a2aText').value, attest=document.getElementById('a2aAttest').value;
+  out.textContent='relaying\u2026';
+  try{
+    const r=await fetch('/api/a2a/send',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({from,to,text,attest})});
+    const j=await r.json();
+    out.textContent = j.ok
+      ? ('RELAYED  '+from+' \u2192 '+to+'\n  landed: '+j.dest+'/'+j.name+'\n  bytes:  '+j.bytes+'\n  sha256: '+j.textSha256+'\n\nIt is queued for review on '+to+' \u2014 nothing ran.')
+      : ('REFUSED\n  '+(j.error||('HTTP '+r.status)));
+    if(j.ok){ document.getElementById('a2aText').value=''; document.getElementById('a2aAttest').value=''; }
+  }catch(e){ out.textContent='relay failed: '+e; }
 }
 
 async function policyLoad(){

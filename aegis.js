@@ -234,6 +234,19 @@ function contractFor(name, opts = {}) {
 // (the per-run gate inside up.js only sees its own batch of 1). Registry is in-memory;
 // entries clear on stream close/error, so a crashed aegis restart clears the ledger too.
 const ACTIVE_GO = new Map();
+
+// Directed A2A allowlist, read through the canonical policy loader. Fails CLOSED: any
+// read problem yields an empty list, so a broken policy file disables relaying rather
+// than silently permitting it. Not cached -- an operator who has just attested a pair
+// expects it to take effect, and this runs once per relay, not per request.
+function readA2aPairs() {
+  try {
+    const pol = require(path.join(FLEET_IAC_ROOT, 'provision', 'lib', 'policy.js'))
+      .loadPolicy(path.join(FLEET_IAC_ROOT, 'provision', 'aegis.policy.jsonc'));
+    return Array.isArray(pol.a2aPairs) ? pol.a2aPairs.map(String) : [];
+  } catch (e) { return []; }
+}
+
 let _mbCache = { v: 2, t: 0 };
 function readMaxBatch() {
   if (Date.now() - _mbCache.t < 10000) return _mbCache.v;
@@ -376,6 +389,67 @@ const server = http.createServer(async (req, res) => {
     if (FLEET_IAC_ROOT) pull(path.join(FLEET_IAC_ROOT, 'provision', 'policy-audit.jsonl'), 'fleetctl');
     rows.sort((a, b2) => String(b2.ts || '').localeCompare(String(a.ts || '')));
     return sendJson(res, { ok: true, rows: rows.slice(0, 25) });
+  }
+
+  // ---- A2A relay: operator-initiated, attested, allowlisted, ledgered ---------------
+  // Aegis is the ONLY thing that can see across agents; neither agent gains any reach.
+  // Four gates, all fail-closed, checked before anything is sent:
+  //   1. the pair must be explicitly allowlisted, and the grant is DIRECTED
+  //   2. the operator must type the exact attestation sentence
+  //   3. source and target must both be registered agents, and must differ
+  //   4. the message must be non-empty and within the receiver's size limit
+  // A refusal is ledgered as loudly as a success -- an attempt that was turned away is
+  // exactly the thing an audit trail exists to show. The ledger records the message
+  // DIGEST and length, never its text, matching the chat-command lane.
+  if (req.url === '/api/a2a/send' && req.method === 'POST') {
+    const b = await readBody(req);
+    const from = String(b.from || '').trim();
+    const to = String(b.to || '').trim();
+    const text = typeof b.text === 'string' ? b.text : '';
+    const attest = String(b.attest || '').trim();
+    const actor = actorOf(req);
+    const required = 'I approve relaying ' + from + ' to ' + to;
+    const sha = text ? crypto.createHash('sha256').update(text, 'utf8').digest('hex') : null;
+    const base = { action: 'a2a-relay', from, to, actor, textSha256: sha, textLen: Buffer.byteLength(text, 'utf8') };
+
+    if (!NAME_RE.test(from) || !NAME_RE.test(to)) {
+      audit({ ...base, outcome: 'refused: invalid agent name' });
+      return sendJson(res, { ok: false, error: 'invalid agent name' }, 400);
+    }
+    if (from === to) {
+      audit({ ...base, outcome: 'refused: same agent' });
+      return sendJson(res, { ok: false, error: 'source and target must differ' }, 400);
+    }
+    const src = agentByName(from), dst = agentByName(to);
+    if (!src || !dst) {
+      audit({ ...base, outcome: 'refused: unknown agent' });
+      return sendJson(res, { ok: false, error: 'unknown agent (both must be registered in aegis.config.json)' }, 404);
+    }
+    if (!text.trim()) {
+      audit({ ...base, outcome: 'refused: empty message' });
+      return sendJson(res, { ok: false, error: 'message is empty' }, 400);
+    }
+    const pairs = readA2aPairs();
+    if (!pairs.includes(from + '>' + to)) {
+      audit({ ...base, outcome: 'refused: pair not allowlisted' });
+      return sendJson(res, { ok: false, error: 'REFUSED \u2014 "' + from + '>' + to + '" is not in policy a2aPairs. Grants are directional; add it with an attested policy set.' }, 403);
+    }
+    if (attest !== required) {
+      audit({ ...base, phrase: attest, outcome: 'refused: attestation mismatch' });
+      return sendJson(res, { ok: false, error: 'REFUSED \u2014 attestation must read exactly:  ' + required }, 403);
+    }
+    audit({ ...base, phrase: attest, outcome: 'started' });
+    const out = await callAgent(dst, 'POST', '/a2a/deliver', { from, text }, actor);
+    let body = null; try { body = JSON.parse(out.body || '{}'); } catch (e) { body = null; }
+    const okDeliver = out.status === 200 && body && body.ok === true;
+    audit({ ...base, phrase: attest, outcome: okDeliver ? 'delivered' : ('failed: HTTP ' + out.status), dest: body && body.dest, name: body && body.name });
+    if (!okDeliver) return sendJson(res, { ok: false, error: (body && body.error) || ('delivery failed (HTTP ' + out.status + ')') }, 502);
+    return sendJson(res, { ok: true, from, to, dest: body.dest, name: body.name, bytes: body.bytes, textSha256: body.textSha256 });
+  }
+
+  // Read-only: which directed pairs are currently permitted (drives the panel).
+  if (req.url === '/api/a2a/pairs' && req.method === 'GET') {
+    return sendJson(res, { ok: true, pairs: readA2aPairs() });
   }
 
   // Ledger integrity: walks the chain and reports the FIRST break with its line and
