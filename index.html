@@ -138,7 +138,6 @@
   <button class="tool-tab adv"  onclick="openTool('adv')">&#9998; Advanced</button>
   <button class="tool-tab policy" onclick="openTool('policy')">&#9878; Policy</button>
   <button class="tool-tab prov" onclick="openTool('prov')">&#9881; Provisioning</button>
-  <button class="tool-tab audit" onclick="openTool('audit')">&#9781; Audit</button>
   <button class="tool-tab dec"  onclick="openTool('dec')">&#9760; Decommission</button>
 </div>
 <div id="toolPanel">
@@ -444,9 +443,51 @@ function ensureCheatRail(){
   p.innerHTML='<div id="cheatBody" style="width:min(560px,92vw);max-height:84vh;overflow:auto;padding:14px;font:var(--uifs,12px)/1.55 ui-monospace,monospace;color:#cfcfcf;white-space:pre-wrap"></div>';
   document.body.appendChild(p);
 }
+// ---- Right-side Audit rail, stacked beneath the Cheatsheet. The pane markup is the
+// SAME #tc-audit node built with the panel -- it is relocated into a right-hand panel
+// here rather than duplicated, so the two-pane audit view has exactly one definition.
+// Its top offset is measured from the live Cheatsheet tab instead of hardcoded, so the
+// two stay flush if that label or the base font ever changes.
+function ensureAuditRail(){
+  if(document.getElementById('auditTab')) return;
+  const ct=document.getElementById('cheatTab');
+  const top = ct ? Math.round(ct.getBoundingClientRect().bottom + 8) : 300;
+  const t=document.createElement('div'); t.id='auditTab'; t.textContent='Audit';
+  t.style.cssText='position:fixed;right:0;top:'+top+'px;z-index:70;background:#e5e7eb;color:#111;writing-mode:vertical-rl;padding:12px 6px;border-radius:8px 0 0 8px;cursor:pointer;font:600 13px system-ui;letter-spacing:.06em;user-select:none';
+  t.onclick=auditToggle; document.body.appendChild(t);
+  const p=document.createElement('div'); p.id='auditPanel';
+  p.style.cssText='position:fixed;right:0;top:64px;z-index:69;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-right:none;border-radius:8px 0 0 8px;max-height:84vh;box-shadow:-6px 0 18px rgba(0,0,0,.45)';
+  const body=document.createElement('div'); body.id='auditBody';
+  body.style.cssText='width:min(560px,92vw);max-height:84vh;overflow:auto;padding:14px';
+  const pane=document.getElementById('tc-audit');
+  if(pane){ pane.classList.add('show'); body.appendChild(pane); }
+  p.appendChild(body); document.body.appendChild(p);
+}
+let auditOpen=false;
+function auditToggle(){
+  const p=document.getElementById('auditPanel'); auditOpen=!auditOpen;
+  if(auditOpen){
+    if(cheatOpen) cheatToggle();          // one right-hand panel at a time
+    p.style.width='min('+((localStorage.getItem('aegis-cheatw')||'560'))+'px,92vw)';
+    ensureAuditGrip(p); p.style.opacity='1'; auditLoad();
+  } else { p.style.width='0'; p.style.opacity='0'; }
+}
+function ensureAuditGrip(panel){
+  if(document.getElementById('auditGrip')) return;
+  const g=document.createElement('div'); g.id='auditGrip'; g.title='drag to resize';
+  g.style.cssText='position:absolute;top:0;left:0;width:7px;height:100%;cursor:ew-resize;z-index:5';
+  g.onmousedown=function(e){
+    e.preventDefault();
+    const move=function(ev){ const w=Math.min(Math.round(window.innerWidth*0.92),Math.max(380,window.innerWidth-ev.clientX)); panel.style.width=w+'px'; localStorage.setItem('aegis-cheatw',String(w)); };
+    const up=function(){ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); };
+    document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
+  };
+  panel.appendChild(g);
+}
 let cheatOpen=false;
 function cheatToggle(){
   const p=document.getElementById('cheatPanel'); cheatOpen=!cheatOpen;
+  if(cheatOpen && auditOpen) auditToggle();
   if(cheatOpen){ p.style.right='0'; p.style.width='min('+((localStorage.getItem('aegis-cheatw')||'560'))+'px,92vw)'; ensureCheatGrip(p); p.style.opacity='1'; buildCheats(); }
   else { p.style.width='0'; p.style.opacity='0'; }
 }
@@ -627,7 +668,6 @@ function openTool(name){
   document.querySelector('.tool-tab.'+name).classList.add('active');
   if(name==='persona') personaLoad();
   if(name==='policy') policyLoad();
-  if(name==='audit') auditLoad();
 }
 
 // Advanced API console: a curated dropdown of the agent's real endpoints, each with a
@@ -820,6 +860,7 @@ async function sendRaw(){
     + '<button class="send" onclick="newConversation()" title="Start a fresh conversation on the selected agent (shared with its webchat)">&#8635; New</button>';
   host.insertBefore(bar, document.getElementById('log'));
   ensureCheatRail();
+  ensureAuditRail();
   document.getElementById('chatSend').onclick = chatSend;
   document.getElementById('prompt').addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); chatSend(); }});
 })();
