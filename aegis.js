@@ -143,7 +143,16 @@ function verifyChain() {
 initChain();
 
 // --- HTTP proxy to an agent's webchat API (unchanged behavior + service-token headers) ---
-function callAgent(agent, method, apiPath, body) {
+// DELEGATION, stated honestly. Cloudflare validates our SERVICE TOKEN at the agent's
+// edge, so the agent can verify that AEGIS called it -- the JWT it receives carries the
+// token's common_name, never the operator's. Whoever asked Aegis to make the call is
+// something only Aegis knows, and the agent cannot check it.
+// So we forward it as an explicit ASSERTION on its own header rather than letting it
+// masquerade as the authenticated caller. The agent records the two separately
+// (actor = verified caller, onBehalfOf = our unverified claim). Collapsing them into
+// one field would produce a confident, unfalsifiable identity -- the same failure as
+// os.userInfo(), one layer down. The trust boundary stays visible in the ledger.
+function callAgent(agent, method, apiPath, body, onBehalfOf) {
   return new Promise((resolve) => {
     const data = body != null ? JSON.stringify(body) : null;
     const headers = {
@@ -151,6 +160,11 @@ function callAgent(agent, method, apiPath, body) {
       'CF-Access-Client-Secret': agent.clientSecret,
       'Accept': 'application/json',
     };
+    if (onBehalfOf && onBehalfOf.src && onBehalfOf.id) {
+      // src:id -- neither field may contain a colon, CR, or LF (header-splitting guard).
+      const clean = (v) => String(v).replace(/[^\x20-\x7e]/g, '').replace(/:/g, '_').slice(0, 200);
+      headers['X-Aegis-On-Behalf-Of'] = clean(onBehalfOf.src) + ':' + clean(onBehalfOf.id);
+    }
     if (data) { headers['Content-Type'] = 'application/json'; headers['Content-Length'] = Buffer.byteLength(data); }
     const req = https.request({ method, hostname: agent.host, path: apiPath, headers }, (r) => {
       let buf = '';
@@ -325,7 +339,7 @@ const server = http.createServer(async (req, res) => {
     const agent = agentByName(decodeURIComponent(m[1]));
     if (!agent) { res.statusCode = 404; return res.end(JSON.stringify({ status: 404, body: 'unknown agent' })); }
     const { method = 'GET', path: apiPath = '/', body = null } = await readBody(req);
-    const out = await callAgent(agent, method, apiPath, body);
+    const out = await callAgent(agent, method, apiPath, body, actorOf(req));
     res.setHeader('Content-Type', 'application/json');
     return res.end(JSON.stringify(out));
   }
@@ -501,12 +515,12 @@ const server = http.createServer(async (req, res) => {
     let list; try { list = JSON.parse(cur.out || '{}').protectedAgents || []; } catch { return sendJson(res, { ok: false, error: 'cannot read policy (fleetctl policy show --json failed)' }, 500); }
     const on = list.includes(name);
     const r = await runFleetctl(['policy', on ? 'unprotect' : 'protect', name, '--attest', attest]);
-    audit({ action: 'protect-toggle', name, verb: on ? 'unprotect' : 'protect', outcome: r.code === 0 ? 'ok' : 'exit ' + r.code });
+    audit({ action: 'protect-toggle', name, verb: on ? 'unprotect' : 'protect', actor: actorOf(req), outcome: r.code === 0 ? 'ok' : 'exit ' + r.code });
     let next = list;
     if (r.code === 0) {
       const rr = await runFleetctl(['policy', 'show', '--json']);
       try { next = JSON.parse(rr.out || '{}').protectedAgents || list; } catch { /* keep prior */ }
-      const agent = agentByName(name); if (agent) { try { callAgent(agent, 'POST', '/protection', { protected: !on }); } catch { /* unreachable */ } }
+      const agent = agentByName(name); if (agent) { try { callAgent(agent, 'POST', '/protection', { protected: !on }, actorOf(req)); } catch { /* unreachable */ } }
     }
     return sendJson(res, { ok: r.code === 0, out: panelClean(r.out), protectedAgents: next });
   }
