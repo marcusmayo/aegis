@@ -234,11 +234,9 @@
     </div>
     <div class="muted" style="font-size:11px;margin:4px 0" id="a2aPairsLine">allowed pairs: &mdash;</div>
     <textarea id="a2aText" rows="7" style="width:100%;box-sizing:border-box;background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:6px;padding:7px 10px;font-family:monospace;font-size:var(--uifs,12px)" placeholder="message to relay &mdash; include descriptions of any images, diagrams or slides"></textarea>
-    <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-      <input id="a2aAttest" style="flex:1;min-width:260px" placeholder="type the attestation sentence">
-      <button onclick="a2aSend()">Attest + Relay</button>
-    </div>
-    <div class="muted" style="font-size:var(--uifs,12px);margin-top:4px" id="a2aHintLine">required: I approve relaying &lt;from&gt; to &lt;to&gt;</div>
+    <div class="muted" style="font-size:var(--uifs,12px);margin-top:8px" id="a2aHintLine">required: I approve relaying &lt;from&gt; to &lt;to&gt;</div>
+    <input id="a2aAttest" style="width:100%;box-sizing:border-box;margin-top:4px;background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:6px;padding:7px 10px;font-family:monospace;font-size:var(--uifs,12px)" placeholder="type the attestation sentence in full">
+    <div style="margin-top:6px"><button onclick="a2aSend()">Attest + Relay</button></div>
     <pre class="planout" id="a2aOut" style="height:170px;max-height:none"><span class="muted">relay result appears here&hellip;</span></pre>
   </div>
   <div class="tool-content" id="tc-policy">
@@ -480,7 +478,11 @@ function ensureAuditRail(){
   const body=document.createElement('div'); body.id='auditBody';
   body.style.cssText='width:100%;height:100%;box-sizing:border-box;overflow:auto;padding:14px';
   const pane=document.getElementById('tc-audit');
-  if(pane){ pane.classList.add('show'); body.appendChild(pane); }
+  // Leaving the pane in the .tool-content family made it collateral damage: openTool()
+  // clears .show from EVERY .tool-content, so opening any left-rail tab silently blanked
+  // this panel. Once relocated it is no longer one of those panes, so it drops the class
+  // and carries its own display -- nothing on the left rail can reach it.
+  if(pane){ pane.classList.remove('tool-content'); pane.classList.remove('show'); pane.style.display='block'; body.appendChild(pane); }
   p.appendChild(body); document.body.appendChild(p);
 }
 let auditOpen=false;
