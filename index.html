@@ -90,6 +90,10 @@
   .tool-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0}
   #toolPanel select,#toolPanel input,#toolPanel textarea{background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:6px;padding:6px 9px;font-family:monospace;font-size:var(--uifs,12px)}
   #toolPanel input{max-width:150px}
+  /* Attestation fields exist to be READ while typed -- the 150px panel cap turned the
+     sentence into a keyhole. Opting these out by class, rather than raising the cap for
+     every input in the panel. */
+  #toolPanel input.attest{max-width:none;width:100%;box-sizing:border-box}
   #toolPanel #advEndpoint{flex:1;min-width:250px;max-width:none}
   #toolPanel .adv-body{width:100%;max-width:none;box-sizing:border-box;resize:vertical;min-height:56px}
   .mdl-sel{background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:5px;padding:3px 6px;font-family:monospace;font-size:calc(var(--uifs,12px) - 1px);max-width:100%}
@@ -235,7 +239,7 @@
     <div class="muted" style="font-size:11px;margin:4px 0" id="a2aPairsLine">allowed pairs: &mdash;</div>
     <textarea id="a2aText" rows="7" style="width:100%;box-sizing:border-box;background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:6px;padding:7px 10px;font-family:monospace;font-size:var(--uifs,12px)" placeholder="message to relay &mdash; include descriptions of any images, diagrams or slides"></textarea>
     <div class="muted" style="font-size:var(--uifs,12px);margin-top:8px" id="a2aHintLine">required: I approve relaying &lt;from&gt; to &lt;to&gt;</div>
-    <input id="a2aAttest" style="width:100%;box-sizing:border-box;margin-top:4px;background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:6px;padding:7px 10px;font-family:monospace;font-size:var(--uifs,12px)" placeholder="type the attestation sentence in full">
+    <input id="a2aAttest" class="attest" style="margin-top:4px;background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:6px;padding:7px 10px;font-family:monospace;font-size:var(--uifs,12px)" placeholder="type the attestation sentence in full">
     <div style="margin-top:6px"><button onclick="a2aSend()">Attest + Relay</button></div>
     <pre class="planout" id="a2aOut" style="height:170px;max-height:none"><span class="muted">relay result appears here&hellip;</span></pre>
   </div>
@@ -245,9 +249,9 @@
     <button onclick="policyLoad()">Refresh policy + attestations</button>
     <pre class="planout" id="policyOut"><span class="muted">policy appears here&hellip;</span></pre>
     <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-      <select id="polKey" onchange="polHint()"><option>maxFleet</option><option>maxBatch</option><option>budget</option><option>allowedRegions</option><option>defaultRegion</option><option>budgetName</option><option>protectedAgents</option></select>
+      <select id="polKey" onchange="polHint()"><option>maxFleet</option><option>maxBatch</option><option>budget</option><option>allowedRegions</option><option>defaultRegion</option><option>budgetName</option><option>protectedAgents</option><option>a2aPairs</option></select>
       <input id="polVal" style="width:200px" placeholder="value (e.g. 6 or eastus2,centralus)" oninput="polHint()">
-      <input id="polAttest" style="flex:1;min-width:260px" placeholder="type the attestation sentence">
+      <input id="polAttest" class="attest" placeholder="type the attestation sentence">
       <button onclick="policySet()">Attest + Set</button>
     </div>
     <div class="muted" style="font-size:var(--uifs,12px);margin-top:4px" id="polHintLine">required: I approve setting maxFleet to &lt;n&gt;</div>
