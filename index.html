@@ -693,7 +693,7 @@ async function policyLoad(){
   const a=document.getElementById('attOut'); a.textContent='loading\u2026';
   try{
     const r=await (await fetch('/api/attestations')).json();
-    a.textContent=(r.rows||[]).map(x=>`${x.ts}  [${x.source}] ${x.action||x.type||''} ${x.key||x.agent||x.name||''} ${x.from!==undefined?JSON.stringify(x.from)+'\u2192'+(x.to!==undefined?JSON.stringify(x.to):x.value||''):(x.value||'')}${x.phrase?(' \u00ab'+x.phrase+'\u00bb'):''}  ${x.outcome||''} ${x.actor?('\u00b7 '+x.actor):''}`).join('\n')||'(no attested actions yet)';
+    a.textContent=(r.rows||[]).map(x=>`${x.ts}  [${x.source}] ${x.action||x.type||''} ${x.key||x.agent||x.name||''} ${x.from!==undefined?JSON.stringify(x.from)+'\u2192'+(x.to!==undefined?JSON.stringify(x.to):x.value||''):(x.value||'')}${x.phrase?(' \u00ab'+x.phrase+'\u00bb'):''}  ${x.outcome||''} ${x.actor?('\u00b7 '+(x.actor.id?x.actor.src+':'+x.actor.id:x.actor)):''}`).join('\n')||'(no attested actions yet)';
   }catch(err){ a.textContent='attestations failed: '+err; }
 }
 function polHint(){

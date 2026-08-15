@@ -42,12 +42,105 @@ function agentByName(name) {
 }
 loadAgents(); // warm lastGoodAgents at startup (and validate the file is readable)
 
-// --- audit: one JSONL line per command; hash + length only, never raw prompt ---
+// --- actor: WHO did this, resolved per transport --------------------------------
+// The prior derivation was os.userInfo().username -- the OS user of the AEGIS
+// PROCESS, not the requester. On a workstation that happens to be the operator and
+// reads correctly; on a hosted VM it collapses to the service account and is
+// IDENTICAL for every action by every person while still LOOKING like an identity.
+// A field that is confidently wrong is worse than an absent one, so this resolver
+// NEVER falls back to the process owner for a request that did not arrive on
+// loopback: an unattributable remote action is recorded as unattributed.
+//
+// Edge-trust model (matches fleet-core auth.js): Cloudflare Access terminates
+// authentication and forwards only verified requests, so the assertion headers are
+// taken at face value. That holds ONLY while the origin is unreachable except via
+// the tunnel -- a hosted Aegis MUST stay bound to loopback with cloudflared dialing
+// it locally. Binding 0.0.0.0 would make every header below attacker-supplied.
+// (Verifying the JWT against Cloudflare's JWKS is the hardening step if that
+// invariant ever has to relax.)
+function isLoopback(req) {
+  const a = String((req && req.socket && req.socket.remoteAddress) || '');
+  return a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1';
+}
+function jwtClaim(token) {
+  try {
+    const parts = String(token || '').split('.');
+    if (parts.length !== 3) return null;
+    const pad = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const claims = JSON.parse(Buffer.from(pad, 'base64').toString('utf8'));
+    return claims.email || claims.common_name || null;  // human login, else service-token name
+  } catch (e) { return null; }
+}
+// override lets a non-HTTP transport (the Telegram relay) supply its own identity,
+// so actor stays meaningful across every way a command can reach the fleet.
+function actorOf(req, override) {
+  const cap = (v) => String(v).slice(0, 200);
+  if (override && override.src && override.id) return { src: cap(override.src), id: cap(override.id) };
+  const h = (req && req.headers) || {};
+  const claim = jwtClaim(h['cf-access-jwt-assertion']);
+  if (claim) return { src: 'cf-access', id: cap(claim) };
+  if (h['cf-access-authenticated-user-email']) return { src: 'cf-access', id: cap(h['cf-access-authenticated-user-email']) };
+  if (h['cf-access-client-id']) return { src: 'cf-access', id: cap(h['cf-access-client-id']) };
+  if (isLoopback(req)) return { src: 'local', id: cap(os.userInfo().username || 'unknown') };
+  return { src: 'unknown', id: 'unattributed' };
+}
+
+// --- audit: one JSONL line per command; hash + length only, never raw prompt -----
+// Tamper-evident chain: every record carries seq + prev + hash, where hash covers
+// the record with hash itself omitted and is written LAST. Verification is then
+// exactly: parse, delete hash, re-stringify, compare. Editing or deleting any
+// earlier line breaks every hash after it -- the ledger cannot be quietly rewritten.
+// Records written before this change carry no hash; the chain starts at the first
+// record that does and earlier lines are left byte-untouched, because rewriting
+// history so it verifies is precisely the tamper this exists to detect.
+let CHAIN = { seq: 0, hash: 'genesis' };
+function initChain() {
+  let lines = [];
+  try { lines = fs.readFileSync(AUDIT, 'utf8').trim().split('\n').filter(Boolean); }
+  catch (e) { return; }
+  for (let i = lines.length - 1; i >= 0; i--) {
+    try {
+      const r = JSON.parse(lines[i]);
+      if (r && r.hash && typeof r.seq === 'number') { CHAIN = { seq: r.seq, hash: r.hash }; return; }
+    } catch (e) { /* skip unreadable line */ }
+  }
+  if (lines.length) CHAIN = { seq: 0, hash: 'genesis-after-' + lines.length + '-unchained' };
+}
 function audit(rec) {
   try {
-    fs.appendFileSync(AUDIT, JSON.stringify({ ts: new Date().toISOString(), ...rec }) + '\n');
+    const body = { ts: new Date().toISOString(), seq: CHAIN.seq + 1, prev: CHAIN.hash, ...rec };
+    const hash = crypto.createHash('sha256').update(JSON.stringify(body)).digest('hex');
+    fs.appendFileSync(AUDIT, JSON.stringify({ ...body, hash }) + '\n');
+    CHAIN = { seq: body.seq, hash };
   } catch (e) { console.error('audit write failed:', e.message); }
 }
+function verifyChain() {
+  const out = { ok: true, checked: 0, unchained: 0, chainStart: null, chainEnd: null, broken: null };
+  let lines = [];
+  try { lines = fs.readFileSync(AUDIT, 'utf8').trim().split('\n').filter(Boolean); }
+  catch (e) { return out; }
+  let expectedPrev = null;
+  for (let i = 0; i < lines.length; i++) {
+    let r; try { r = JSON.parse(lines[i]); } catch (e) { out.unchained++; continue; }
+    if (!r || !r.hash) { out.unchained++; continue; }
+    if (expectedPrev !== null && r.prev !== expectedPrev) {
+      out.ok = false; out.broken = { line: i + 1, seq: r.seq, reason: 'prev does not match preceding hash' };
+      return out;
+    }
+    const body = { ...r }; delete body.hash;
+    const calc = crypto.createHash('sha256').update(JSON.stringify(body)).digest('hex');
+    if (calc !== r.hash) {
+      out.ok = false; out.broken = { line: i + 1, seq: r.seq, reason: 'record hash mismatch (line edited)' };
+      return out;
+    }
+    if (out.chainStart === null) out.chainStart = r.seq;
+    out.chainEnd = r.seq;
+    expectedPrev = r.hash;
+    out.checked++;
+  }
+  return out;
+}
+initChain();
 
 // --- HTTP proxy to an agent's webchat API (unchanged behavior + service-token headers) ---
 function callAgent(agent, method, apiPath, body) {
@@ -252,7 +345,7 @@ const server = http.createServer(async (req, res) => {
     const value = String(b.value || '').trim();
     const attest = String(b.attest || '');
     const r = await runFleetctl(['policy', 'set', key, value, '--attest', attest]);
-    audit({ action: 'policy-set', key, value, outcome: r.code === 0 ? 'ok' : 'refused-or-error', via: 'panel' });
+    audit({ action: 'policy-set', key, value, actor: actorOf(req), outcome: r.code === 0 ? 'ok' : 'refused-or-error', via: 'panel' });
     return sendJson(res, { ok: r.code === 0, code: r.code, out: panelClean(r.out) });
   }
   // Merged attestation timeline: Aegis actions + the fleetctl policy ledger, newest first.
@@ -269,6 +362,13 @@ const server = http.createServer(async (req, res) => {
     if (FLEET_IAC_ROOT) pull(path.join(FLEET_IAC_ROOT, 'provision', 'policy-audit.jsonl'), 'fleetctl');
     rows.sort((a, b2) => String(b2.ts || '').localeCompare(String(a.ts || '')));
     return sendJson(res, { ok: true, rows: rows.slice(0, 25) });
+  }
+
+  // Ledger integrity: walks the chain and reports the FIRST break with its line and
+  // seq. Read-only and cheap; this is what the audit-chain compliance control will
+  // call so the control verifies the chain instead of merely asserting one exists.
+  if (req.url === '/api/audit/verify' && req.method === 'GET') {
+    return sendJson(res, { ok: true, chain: verifyChain() });
   }
 
   // Provisioning plan (READ-ONLY): preview `up` + the caps/budget gate for a proposed agent.
@@ -332,7 +432,7 @@ const server = http.createServer(async (req, res) => {
     const attest = String(b.attest || '').trim();
     if (!NAME_RE.test(name)) return sendJson(res, { ok: false, error: 'invalid agent name' }, 400);
     const required = 'I approve provisioning ' + name;
-    const actor = (os.userInfo().username || 'unknown');
+    const actor = actorOf(req);
     if (attest !== required) {
       audit({ action: 'provision-go', name, actor, phrase: attest, outcome: 'refused: attestation mismatch' });
       return sendJson(res, { ok: false, error: 'REFUSED — attestation must read exactly:  ' + required }, 403);
@@ -432,7 +532,7 @@ const server = http.createServer(async (req, res) => {
     const attest = String(b.attest || '');
     if (!NAME_RE.test(name)) return sendJson(res, { ok: false, out: 'invalid agent name — must match ^[a-z][a-z0-9-]{1,23}$' }, 400);
     const required = 'I approve decommissioning ' + name;
-    const actor = (os.userInfo().username || 'unknown');
+    const actor = actorOf(req);
     if (attest.trim() !== required) {
       audit({ action: 'decommission-go', name, actor, phrase: attest, outcome: 'refused: attestation mismatch' });
       return sendJson(res, { ok: false, out: 'REFUSED — attestation must read exactly:\n  ' + required }, 400);
@@ -456,10 +556,13 @@ server.on('upgrade', (req, socket, head) => {
   if (!um) { socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); socket.destroy(); return; }
   const agent = agentByName(decodeURIComponent(um[1]));
   if (!agent) { socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); socket.destroy(); return; }
-  wss.handleUpgrade(req, socket, head, (browserWs) => relay(browserWs, agent));
+  // Resolve WHO at upgrade time -- the only point the HTTP request (and its Access
+  // assertion) is still in hand; every command on this socket is attributed to it.
+  const actor = actorOf(req);
+  wss.handleUpgrade(req, socket, head, (browserWs) => relay(browserWs, agent, actor));
 });
 
-function relay(browserWs, agent) {
+function relay(browserWs, agent, actor) {
   let agentWs = null;
   let closed = false;
   const tell = (obj) => { if (browserWs.readyState === WebSocket.OPEN) browserWs.send(JSON.stringify({ agent: agent.name, ...obj })); };
@@ -469,7 +572,7 @@ function relay(browserWs, agent) {
     const prompt = (msg.prompt || '').toString();
     if (!prompt.trim()) { tell({ type: 'error', text: 'Empty prompt.' }); tell({ type: 'done' }); return; }
 
-    audit({ agent: agent.name, event: 'command',
+    audit({ agent: agent.name, event: 'command', actor,
             promptSha256: crypto.createHash('sha256').update(prompt).digest('hex'),
             promptLen: prompt.length, status: 'sent' });
 
