@@ -93,7 +93,7 @@
   /* Attestation fields exist to be READ while typed -- the 150px panel cap turned the
      sentence into a keyhole. Opting these out by class, rather than raising the cap for
      every input in the panel. */
-  #toolPanel input.attest{max-width:none;width:100%;box-sizing:border-box}
+  #toolPanel input.attest,#toolPanel input.wide{max-width:none;width:100%;box-sizing:border-box}
   #toolPanel #advEndpoint{flex:1;min-width:250px;max-width:none}
   #toolPanel .adv-body{width:100%;max-width:none;box-sizing:border-box;resize:vertical;min-height:56px}
   .mdl-sel{background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:5px;padding:3px 6px;font-family:monospace;font-size:calc(var(--uifs,12px) - 1px);max-width:100%}
@@ -178,7 +178,7 @@
     <div class="muted" style="font-size:11px;margin:8px 0 4px">To EXECUTE (creates cloud resources): 1) Write contract &rarr; 2) type the attestation sentence (<b style="color:#c9a227">I approve provisioning &lt;name&gt;</b>) and Execute &rarr; 3) once the stream shows the Key Vault created (~2 min in), <b>Seed keys from a SECOND Aegis tab</b> &mdash; the vault is created by up, and bootstrap fetches the keys near the end of the build (~8&ndash;10 min), so mid-build seeding is the correct window. fleetctl's preflight (caps &middot; budget &middot; placeholders &middot; operator email) stays the fail-closed gate &mdash; a failing check aborts with nothing created.</div>
     <div class="tool-row"><button class="send" onclick="provisionWriteContract()">1. Write contract</button><button class="send" onclick="provisionPlanPersisted()">Plan (real contract)</button></div>
     <div class="tool-row">
-      <input id="pvAttest" placeholder="I approve provisioning <name>" oninput="pvAttestCheck()" style="flex:1;min-width:260px">
+      <input id="pvAttest" class="attest" placeholder="I approve provisioning <name>" oninput="pvAttestCheck()">
       <button id="pvExec" class="send" onclick="provisionGo()" disabled>2. Execute up --go</button>
     </div>
     <div class="muted" style="font-size:var(--uifs,12px)" id="pvHint">type exactly: I approve provisioning &lt;name&gt;</div>
@@ -199,7 +199,7 @@
     <pre class="planout" id="decOut"><span class="muted">teardown plan appears here&hellip;</span></pre>
     <div class="muted" style="font-size:11px;margin:8px 0 4px">To EXECUTE (destructive): type the attestation sentence below, then Execute. Aegis runs the teardown &mdash; no CLI; every attempt &mdash; approved or refused &mdash; is ledgered.</div>
     <div class="tool-row">
-      <input id="dcAttest" placeholder="I approve decommissioning <name>" oninput="dcAttestCheck()" style="flex:1;min-width:260px">
+      <input id="dcAttest" class="attest" placeholder="I approve decommissioning <name>" oninput="dcAttestCheck()">
       <button id="dcExec" class="send" style="background:#ef4444" onclick="decommissionGo()" disabled>Execute teardown (--go)</button>
     </div>
     <div class="muted" style="font-size:var(--uifs,12px)" id="dcHint">type exactly: I approve decommissioning &lt;name&gt;</div>
@@ -237,9 +237,17 @@
       <button onclick="a2aLoad()">Refresh pairs</button>
     </div>
     <div class="muted" style="font-size:11px;margin:4px 0" id="a2aPairsLine">allowed pairs: &mdash;</div>
+    <div id="a2aGrant" style="display:none;border:1px solid #7c2d12;background:#1a0f0a;border-radius:6px;padding:8px;margin:6px 0">
+      <div style="font:700 12px monospace;color:#fb923c">This pair is not permitted yet</div>
+      <div class="muted" style="font-size:var(--uifs,12px);margin:4px 0">Granting is a separate, durable decision from sending: it stays in policy until you remove it, and it runs one way only. Approve the grant here, then the relay attestation below sends the message.</div>
+      <input id="a2aGrantAttest" class="attest" placeholder="type the grant attestation in full">
+      <div class="muted" style="font-size:var(--uifs,12px);margin-top:4px" id="a2aGrantHint">required: &mdash;</div>
+      <div style="margin-top:6px"><button onclick="a2aGrantSet()">Attest + Grant pair</button></div>
+      <pre class="planout" id="a2aGrantOut" style="height:70px;max-height:none;margin-top:6px"><span class="muted">grant result appears here&hellip;</span></pre>
+    </div>
     <textarea id="a2aText" rows="7" style="width:100%;box-sizing:border-box;background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:6px;padding:7px 10px;font-family:monospace;font-size:var(--uifs,12px)" placeholder="message to relay &mdash; include descriptions of any images, diagrams or slides"></textarea>
-    <div class="muted" style="font-size:var(--uifs,12px);margin-top:8px" id="a2aHintLine">required: I approve relaying &lt;from&gt; to &lt;to&gt;</div>
-    <input id="a2aAttest" class="attest" style="margin-top:4px;background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:6px;padding:7px 10px;font-family:monospace;font-size:var(--uifs,12px)" placeholder="type the attestation sentence in full">
+    <input id="a2aAttest" class="attest" style="margin-top:8px;background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:6px;padding:7px 10px;font-family:monospace;font-size:var(--uifs,12px)" placeholder="type the attestation sentence in full">
+    <div class="muted" style="font-size:var(--uifs,12px);margin-top:4px" id="a2aHintLine">required: I approve relaying &lt;from&gt; to &lt;to&gt;</div>
     <div style="margin-top:6px"><button onclick="a2aSend()">Attest + Relay</button></div>
     <pre class="planout" id="a2aOut" style="height:170px;max-height:none"><span class="muted">relay result appears here&hellip;</span></pre>
   </div>
@@ -250,11 +258,11 @@
     <pre class="planout" id="policyOut"><span class="muted">policy appears here&hellip;</span></pre>
     <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
       <select id="polKey" onchange="polHint()"><option>maxFleet</option><option>maxBatch</option><option>budget</option><option>allowedRegions</option><option>defaultRegion</option><option>budgetName</option><option>protectedAgents</option><option>a2aPairs</option></select>
-      <input id="polVal" style="width:200px" placeholder="value (e.g. 6 or eastus2,centralus)" oninput="polHint()">
-      <input id="polAttest" class="attest" placeholder="type the attestation sentence">
-      <button onclick="policySet()">Attest + Set</button>
+      <input id="polVal" class="wide" placeholder="value (e.g. 6, or heimdall&gt;bosun,bosun&gt;heimdall)" oninput="polHint()">
     </div>
+    <input id="polAttest" class="attest" placeholder="type the attestation sentence in full">
     <div class="muted" style="font-size:var(--uifs,12px);margin-top:4px" id="polHintLine">required: I approve setting maxFleet to &lt;n&gt;</div>
+    <div style="margin-top:6px"><button onclick="policySet()">Attest + Set</button></div>
     <pre class="planout" id="policySetOut" style="height:160px"><span class="muted">set result appears here&hellip;</span></pre>
     <h4 style="margin:10px 0 4px">Recent attested actions (merged)</h4>
     <pre class="planout" id="attOut" style="max-height:200px"><span class="muted">timeline appears here&hellip;</span></pre>
@@ -490,8 +498,16 @@ function ensureAuditRail(){
   p.appendChild(body); document.body.appendChild(p);
 }
 let auditOpen=false;
+// The ledger is a live surface: an action taken in another pane must show up without
+// closing and reopening this one, or the operator learns to distrust what it shows.
+// Polls only while open, and every attested action calls auditPoke() so the record
+// appears immediately rather than up to the poll interval later.
+let auditTimer=null;
+function auditPoke(){ if(auditOpen) auditLoad(); }
 function auditToggle(){
   const p=document.getElementById('auditPanel'); auditOpen=!auditOpen;
+  if(auditTimer){ clearInterval(auditTimer); auditTimer=null; }
+  if(auditOpen) auditTimer=setInterval(()=>{ if(auditOpen) auditLoad(); }, 10000);
   if(auditOpen){
     if(cheatOpen) cheatToggle();          // one right-hand panel at a time
     const sz=panelSize(); p.style.width=sz.w; p.style.height=sz.h;
@@ -864,6 +880,40 @@ function a2aHint(){
   const f=document.getElementById('a2aFrom').value||'<from>';
   const t=document.getElementById('a2aTo').value||'<to>';
   document.getElementById('a2aHintLine').textContent='required: I approve relaying '+f+' to '+t;
+  a2aGrantRefresh();
+}
+let A2A_PAIRS=[];
+// The grant is offered where it is needed instead of sending the operator to another tab,
+// but it stays a SEPARATE attested act. Collapsing grant and send into one phrase would
+// make an empty allowlist mean "anything attested may relay" -- fail-open, and the only
+// place in the fleet where empty means permitted. Two phrases, one screen.
+//
+// a2aPairs is a full-list replacement, so a grant must carry the pairs that already exist
+// or attesting a new one would silently revoke the others. The sentence shows the whole
+// resulting list for that reason: what you approve is the end state, not the delta.
+function a2aGrantValue(){
+  const f=document.getElementById('a2aFrom').value, t=document.getElementById('a2aTo').value;
+  return A2A_PAIRS.concat([f+'>'+t]).filter((v,i,a)=>a.indexOf(v)===i).join(',');
+}
+function a2aGrantRefresh(){
+  const f=document.getElementById('a2aFrom').value, t=document.getElementById('a2aTo').value;
+  const box=document.getElementById('a2aGrant');
+  const permitted=A2A_PAIRS.includes(f+'>'+t);
+  box.style.display = (f&&t&&f!==t&&!permitted) ? 'block' : 'none';
+  if(!permitted) document.getElementById('a2aGrantHint').textContent='required: I approve setting a2aPairs to '+a2aGrantValue();
+}
+async function a2aGrantSet(){
+  const out=document.getElementById('a2aGrantOut');
+  const value=a2aGrantValue(), attest=document.getElementById('a2aGrantAttest').value;
+  out.textContent='granting\u2026';
+  try{
+    const r=await fetch('/api/policy/set',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({key:'a2aPairs',value,attest})});
+    const j=await r.json();
+    out.textContent=(j.ok?'GRANTED\n  ':'REFUSED\n  ')+((j.out||j.error||'').trim()||('HTTP '+r.status));
+    if(j.ok){ document.getElementById('a2aGrantAttest').value=''; await a2aLoad(); }
+    auditPoke();
+  }catch(e){ out.textContent='grant failed: '+e; }
 }
 async function a2aLoad(){
   const names=(typeof AGENTS!=='undefined'&&AGENTS?AGENTS:[]).map(a=>a.name);
@@ -879,6 +929,7 @@ async function a2aLoad(){
   try{
     const r=await (await fetch('/api/a2a/pairs')).json();
     const p=(r.pairs||[]);
+    A2A_PAIRS=p;
     document.getElementById('a2aPairsLine').textContent = p.length
       ? ('allowed pairs: '+p.join('  \u00b7  '))
       : 'allowed pairs: none \u2014 relaying is off until a pair is attested in Policy (a2aPairs)';
@@ -898,6 +949,7 @@ async function a2aSend(){
       ? ('RELAYED  '+from+' \u2192 '+to+'\n  landed: '+j.dest+'/'+j.name+'\n  bytes:  '+j.bytes+'\n  sha256: '+j.textSha256+'\n\nIt is queued for review on '+to+' \u2014 nothing ran.')
       : ('REFUSED\n  '+(j.error||('HTTP '+r.status)));
     if(j.ok){ document.getElementById('a2aText').value=''; document.getElementById('a2aAttest').value=''; }
+    auditPoke();
   }catch(e){ out.textContent='relay failed: '+e; }
 }
 
@@ -922,6 +974,7 @@ async function policySet(){
   const o=document.getElementById('policySetOut'); o.textContent='running\u2026';
   try{
     const r=await (await fetch('/api/policy/set',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key,value,attest})})).json();
+  auditPoke();
     o.textContent=(r.ok?'OK\n':'REFUSED / ERROR\n')+(r.out||'');
   }catch(err){ o.textContent='set failed: '+err; }
   document.getElementById('polVal').value='';
