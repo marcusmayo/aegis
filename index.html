@@ -66,6 +66,10 @@
   .tool-tab.dec{background:#ef4444}
   .tool-tab.persona{background:#8b5cf6}
   .tool-tab.policy{background:#10b981;color:#052e22}
+  .tool-tab.audit{background:#e5e7eb;color:#111}
+  .aud-ok{color:#22c55e;font-weight:700}.aud-bad{color:#ef4444;font-weight:700}
+  .aud-pane{border:1px solid #232323;border-radius:8px;padding:8px;margin-top:8px;background:#0b0b0b}
+  .aud-pane h4{margin:0 0 2px;font:700 12px monospace}
   .tool-tab.active{outline:2px solid #fff;outline-offset:-3px}
   #toolPanel{position:fixed;left:40px;top:64px;z-index:60;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-left:none;border-radius:0 8px 8px 0;max-height:84vh;overflow-y:auto;box-shadow:6px 0 18px rgba(0,0,0,.45)}
   #toolPanel.open{width:440px;opacity:1;padding:14px}
@@ -134,6 +138,7 @@
   <button class="tool-tab adv"  onclick="openTool('adv')">&#9998; Advanced</button>
   <button class="tool-tab policy" onclick="openTool('policy')">&#9878; Policy</button>
   <button class="tool-tab prov" onclick="openTool('prov')">&#9881; Provisioning</button>
+  <button class="tool-tab audit" onclick="openTool('audit')">&#9781; Audit</button>
   <button class="tool-tab dec"  onclick="openTool('dec')">&#9760; Decommission</button>
 </div>
 <div id="toolPanel">
@@ -201,6 +206,21 @@
     <textarea id="personaText" class="adv-body" placeholder="Load the target agent's persona, then edit&hellip;" rows="10" style="min-height:200px"></textarea>
     <div class="tool-row"><button class="send" onclick="personaSave()">Save persona</button></div>
     <pre class="planout" id="personaOut"><span class="muted">persona status appears here&hellip;</span></pre>
+  </div>
+  <div class="tool-content" id="tc-audit">
+    <h3 style="margin:4px 0 8px">Audit &middot; hash-chained ledgers</h3>
+    <div class="muted" style="font-size:var(--uifs,12px);margin-bottom:8px">Two independent chains, shown separately on purpose. The control plane records what was <b>commanded</b>; each agent records what it <b>did</b>. Neither can rewrite the other &mdash; so there is no single merged history to show, and a merged view would imply one.</div>
+    <button onclick="auditLoad()">Refresh</button>
+    <div class="aud-pane">
+      <h4 style="color:#e5e7eb">Control plane &middot; aegis-audit.jsonl</h4>
+      <div class="muted" style="font-size:11px" id="audAegisChain">chain: &mdash;</div>
+      <pre class="planout" id="audAegisOut" style="max-height:220px"><span class="muted">loading&hellip;</span></pre>
+    </div>
+    <div class="aud-pane">
+      <h4 style="color:#8ab4f8">Agents &middot; logs/audit.jsonl (per agent)</h4>
+      <div class="muted" style="font-size:11px">Each agent verifies only its own chain. Coverage compares its job records against its logged skill-runs &mdash; an intact chain that records nothing is not a pass.</div>
+      <pre class="planout" id="audAgentOut" style="max-height:260px"><span class="muted">loading&hellip;</span></pre>
+    </div>
   </div>
   <div class="tool-content" id="tc-policy">
     <h3 style="margin:4px 0 8px">Policy &middot; attested governance gate</h3>
@@ -607,6 +627,7 @@ function openTool(name){
   document.querySelector('.tool-tab.'+name).classList.add('active');
   if(name==='persona') personaLoad();
   if(name==='policy') policyLoad();
+  if(name==='audit') auditLoad();
 }
 
 // Advanced API console: a curated dropdown of the agent's real endpoints, each with a
@@ -685,6 +706,60 @@ async function advSend(){
 function toggleAdv(){ /* removed: replaced by openTool */ }
 
 
+
+// Audit view. Two panes, one time axis, never merged: the control-plane ledger and each
+// agent's log are separate chains in separate trust domains. Agents are queried through
+// the normal relay, so an unreachable agent is reported as unreachable rather than
+// silently omitted -- a missing agent in an audit view would read as "nothing happened".
+function audWho(a){
+  if(!a) return '';
+  if(typeof a==='string') return a;
+  return (a.label||a.id||'?')+(a.src?(' ['+a.src+']'):'');
+}
+async function auditLoad(){
+  const ae=document.getElementById('audAegisOut'), ac=document.getElementById('audAegisChain');
+  const ag=document.getElementById('audAgentOut');
+  ae.textContent='loading\u2026'; ag.textContent='loading\u2026';
+  try{
+    const r=await (await fetch('/api/audit/recent?limit=30')).json();
+    const c=r.chain||{};
+    ac.innerHTML='chain: '+(c.ok?'<span class="aud-ok">VERIFIED</span>':'<span class="aud-bad">BROKEN'+(c.broken?(' at seq '+c.broken.seq+' \u2014 '+c.broken.reason):'')+'</span>')
+      +' \u00b7 '+(c.checked||0)+' chained'+(c.unchained?(' \u00b7 '+c.unchained+' pre-chain'):'');
+    ae.textContent=(r.rows||[]).map(x=>{
+      const who=audWho(x.actor);
+      return [x.ts, (x.seq!==undefined?('#'+x.seq):''), (x.action||x.event||''),
+              (x.name||x.agent||''), (x.outcome||x.status||''), (who?('\u00b7 '+who):'')]
+             .filter(Boolean).join('  ');
+    }).join('\n')||'(no records yet)';
+  }catch(e){ ae.textContent='control-plane ledger failed: '+e; }
+
+  const names=(typeof AGENTS!=='undefined'&&AGENTS?AGENTS:[]).map(a=>a.name);
+  if(!names.length){ ag.textContent='(no agents configured)'; return; }
+  const blocks=await Promise.all(names.map(async n=>{
+    try{
+      const v=await api(n,'GET','/audit-verify');
+      let head='';
+      try{
+        const j=JSON.parse(v.body||'{}');
+        const ch=(j&&j.chain)||{};
+        head=ch.ok?('chain VERIFIED \u00b7 '+(ch.length||0)+' entries')
+                  :('chain BROKEN at entry '+ch.brokenAt+' of '+(ch.length||0));
+      }catch(_e){ head='unreadable ('+v.status+')'; }
+      const rr=await api(n,'GET','/audit-recent?limit=12');
+      let rows=[];
+      try{ rows=(JSON.parse(rr.body||'{}').rows)||[]; }catch(_e){ rows=[]; }
+      const body=rows.map(x=>{
+        const who=audWho(x.actor), obo=x.onBehalfOf?(' for '+audWho(x.onBehalfOf)):'';
+        return '   '+[x.ts, (x.event||''), (x.route||''),
+                      (x.exitCode!==undefined&&x.exitCode!==null?('rc='+x.exitCode):''),
+                      (x.durationMs!==undefined?(x.durationMs+'ms'):''),
+                      (who?('\u00b7 '+who+obo):'')].filter(Boolean).join('  ');
+      }).join('\n')||'   (no entries)';
+      return n+' \u2014 '+head+'\n'+body;
+    }catch(e){ return n+' \u2014 UNREACHABLE ('+e+')'; }
+  }));
+  ag.textContent=blocks.join('\n\n');
+}
 
 async function policyLoad(){
   const o=document.getElementById('policyOut'); o.textContent='loading\u2026';

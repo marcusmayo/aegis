@@ -385,6 +385,21 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, { ok: true, chain: verifyChain() });
   }
 
+  // Control-plane ledger tail for the Audit view. Deliberately NOT merged with the
+  // agents' logs: those are separate chains in separate trust domains, and neither can
+  // rewrite the other. Presenting one stream would imply a single verifiable history
+  // that does not exist -- so the panel shows two panes and says which is which.
+  if (req.url.startsWith('/api/audit/recent') && req.method === 'GET') {
+    const n = Math.min(Math.max(parseInt((req.url.split('limit=')[1] || '30'), 10) || 30, 1), 200);
+    let rows = [];
+    try {
+      rows = fs.readFileSync(AUDIT, 'utf8').trim().split('\n').filter(Boolean).slice(-n)
+        .map(l => { try { return JSON.parse(l); } catch (e) { return null; } })
+        .filter(Boolean).reverse();
+    } catch (e) { rows = []; }
+    return sendJson(res, { ok: true, rows, chain: verifyChain() });
+  }
+
   // Provisioning plan (READ-ONLY): preview `up` + the caps/budget gate for a proposed agent.
   if (req.url === '/api/provision/active' && req.method === 'GET') {
     return sendJson(res, { ok: true, active: [...ACTIVE_GO.keys()], maxBatch: readMaxBatch() });
