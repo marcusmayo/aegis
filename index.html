@@ -1011,6 +1011,17 @@ async function policyLoad(){
 function polHint(){
   const k=document.getElementById('polKey').value, v=document.getElementById('polVal').value||'<n>';
   document.getElementById('polHintLine').textContent='required: I approve setting '+k+' to '+v;
+  polSeenChats(k);
+}
+// The Telegram onboarding read-out: chats that knocked but are not allowlisted, from the
+// lane's own telemetry -- your own id appears here after you message the bot once.
+async function polSeenChats(k){
+  let el=document.getElementById('polSeen');
+  if(!el){ el=document.createElement('div'); el.id='polSeen'; el.className='muted'; el.style.cssText='font-size:var(--uifs,12px);margin-top:4px'; const h=document.getElementById('polHintLine'); if(h&&h.parentNode) h.parentNode.insertBefore(el,h.nextSibling); }
+  if(k!=='telegramChatIds'){ el.textContent=''; return; }
+  try{ const j=await (await fetch('/api/plane')).json(); const d=j.telegramDetail||{}; const seen=(d.unknownChats||[]);
+    el.textContent = d.on===false ? ('telegram lane: off'+(j.telegram&&j.telegram.startsWith('off')?' — '+j.telegram.slice(4):'')) : (seen.length ? 'seen but not allowlisted: '+seen.join(', ')+'  (message the bot once and your id appears here)' : 'no unknown chats seen yet — message the bot once and your id appears here');
+  }catch(e){ el.textContent=''; }
 }
 async function policySet(){
   const key=document.getElementById('polKey').value;

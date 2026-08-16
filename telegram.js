@@ -165,7 +165,8 @@ function start(deps) {
       const t = cur ? deps.agentByName(cur) : null;
       let reach = 'n/a', extra = '';
       if (t) {
-        try { const r = await deps.callAgent(t, 'GET', '/health/liveness', null, { src: 'telegram', id: chatId }); reach = r && r.status === 200 ? 'reachable' : ('HTTP ' + (r && r.status)); } catch (e) { reach = 'unreachable (' + String(e.message || e).slice(0, 80) + ')'; }
+        // the same probe the panel's cards use for "reachable": GET /color (every agent serves it)
+        try { const r = await deps.callAgent(t, 'GET', '/color', null, { src: 'telegram', id: chatId }); reach = r && r.status === 200 ? 'reachable' : ('HTTP ' + (r && r.status)); } catch (e) { reach = 'unreachable (' + String(e.message || e).slice(0, 80) + ')'; }
         try { const w = await webState(t, chatId); const mi = await modelInfo(t, chatId); extra = '\nweb: ' + (w === null ? 'n/a' : (w ? 'ON' : 'OFF')) + '\nmodel: ' + (mi ? ((mi.options.find((o) => o.slug === mi.active) || {}).label || mi.active || '?') : 'n/a'); } catch { /* keep the basics */ }
       }
       return say(chatId, 'plane: ' + (deps.planeName ? deps.planeName() : 'aegis') + '\ntarget: ' + (cur || 'none') + (t ? '  ' + reach : '') + extra + '\nagents: ' + agents.map((a) => a.name).join(', '));
