@@ -240,6 +240,67 @@ function contractFor(name, opts = {}) {
 // entries clear on stream close/error, so a crashed aegis restart clears the ledger too.
 const ACTIVE_GO = new Map();
 
+// fleetctl's attested-acts ledger lives next to the policy file it belongs to (the live copy
+// on a hosted plane, the checkout on a workstation). The checkout location is also read when
+// it differs, so records written before a plane's policy moved are never lost to the view.
+function fleetctlLedgerFiles() {
+  const out = [];
+  try {
+    const pol = require(path.join(FLEET_IAC_ROOT, 'provision', 'lib', 'policy.js'));
+    const p = pol.resolvePolicyPath();
+    if (p) out.push(path.join(path.dirname(p), 'policy-audit.jsonl'));
+  } catch (e) { /* no policy module */ }
+  if (FLEET_IAC_ROOT) { const legacy = path.join(FLEET_IAC_ROOT, 'provision', 'policy-audit.jsonl'); if (!out.includes(legacy)) out.push(legacy); }
+  return out.filter((f) => fs.existsSync(f));
+}
+function readJsonl(file) {
+  try { return fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean); }
+  catch { return []; }
+}
+// Printable audit export: one self-contained HTML document the browser prints to PDF.
+// Three ledgers, three sections, deliberately NOT merged -- the control plane records what was
+// commanded, fleetctl records what was attested against policy, each agent records what it did;
+// they are separate chains in separate trust domains and a merged stream would imply a single
+// verifiable history that does not exist. Every section states its own verification result.
+const escapeHtml = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function who(a) { if (!a) return ''; if (typeof a === 'string') return a; return (a.label || a.id || '?') + (a.src ? ' [' + a.src + ']' : ''); }
+async function buildAuditExport(actor) {
+  const gen = new Date().toISOString();
+  const plane = planeName();
+  const chain = verifyChain();
+  const cp = readJsonl(AUDIT);
+  const fl = fleetctlLedgerFiles().flatMap((f) => readJsonl(f).map((r) => ({ ...r, _file: path.basename(path.dirname(f)) + '/' + path.basename(f) })));
+  fl.sort((a, b) => String(a.ts || '').localeCompare(String(b.ts || '')));
+  const agents = loadAgents();
+  const agentBlocks = [];
+  for (const a of agents) {
+    let ver = null, rows = [], err = '';
+    try { const v = await callAgent(a, 'GET', '/audit-verify', null, actor); ver = v && v.status === 200 ? (JSON.parse(v.body || '{}').chain || null) : null; if (!v || v.status !== 200) err = 'audit-verify HTTP ' + (v && v.status); } catch (e) { err = 'unreachable: ' + String(e.message || e).slice(0, 80); }
+    try { const r = await callAgent(a, 'GET', '/audit-recent?limit=500', null, actor); rows = r && r.status === 200 ? (JSON.parse(r.body || '{}').rows || []) : []; } catch { /* keep err */ }
+    agentBlocks.push({ name: a.name, profile: a.profile, host: a.host, ver, rows, err });
+  }
+  const css = 'body{font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#111;margin:24px;max-width:1100px}h1{font-size:18px;margin:0 0 4px}h2{font-size:15px;margin:22px 0 6px;border-bottom:1px solid #999;padding-bottom:3px;page-break-before:always}h2.first{page-break-before:auto}.meta{color:#444;font-size:11px}table{border-collapse:collapse;width:100%;margin-top:6px}th,td{border:1px solid #bbb;padding:3px 5px;text-align:left;vertical-align:top;font-size:11px;word-break:break-word}th{background:#eee}.ok{color:#0a7f2e;font-weight:700}.bad{color:#b00020;font-weight:700}.note{background:#f4f4f4;border:1px solid #ddd;padding:6px 8px;font-size:11px;margin:6px 0}@media print{body{margin:10mm}h2{page-break-before:always}h2.first{page-break-before:auto}.noprint{display:none}}';
+  const th = (cols) => '<tr>' + cols.map((c) => '<th>' + escapeHtml(c) + '</th>').join('') + '</tr>';
+  const td = (cells) => '<tr>' + cells.map((c) => '<td>' + escapeHtml(c) + '</td>').join('') + '</tr>';
+  let h = '<!doctype html><html><head><meta charset="utf-8"><title>Aegis audit export · ' + escapeHtml(plane) + ' · ' + escapeHtml(gen) + '</title><style>' + css + '</style></head><body>';
+  h += '<h1>Aegis audit export — control plane <b>' + escapeHtml(plane) + '</b></h1><div class="meta">generated ' + escapeHtml(gen) + ' by ' + escapeHtml(who(actor)) + ' · agents: ' + escapeHtml(agents.map((a) => a.name).join(', ') || 'none') + '</div>';
+  h += '<div class="note">Three ledgers, three sections, deliberately not merged. The control plane records what was <b>commanded</b>; fleetctl records what was <b>attested against policy</b>; each agent records what it <b>did</b>. They are separate chains in separate trust domains and neither can rewrite another, so no single merged history exists to print. Actor labels are readable names for verified identities; the recorded id is the fact.</div>';
+  h += '<button class="noprint" onclick="window.print()" style="margin:8px 0;padding:6px 14px">Print / save as PDF</button>';
+  // 1 control plane
+  h += '<h2 class="first">1. Control plane ledger — aegis-audit.jsonl</h2><div class="meta">chain: ' + (chain.ok ? '<span class="ok">VERIFIED</span>' : '<span class="bad">BROKEN' + (chain.broken ? ' at seq ' + escapeHtml(chain.broken.seq) + ' — ' + escapeHtml(chain.broken.reason) : '') + '</span>') + ' · ' + escapeHtml(chain.checked || 0) + ' chained' + (chain.unchained ? ' · ' + escapeHtml(chain.unchained) + ' pre-chain' : '') + ' · ' + cp.length + ' records</div>';
+  h += '<table>' + th(['seq', 'ts', 'action / event', 'agent', 'outcome / status', 'actor', 'detail']) + cp.map((x) => td([x.seq !== undefined ? '#' + x.seq : '', x.ts, x.action || x.event || '', x.name || x.agent || '', x.outcome || x.status || '', who(x.actor), [x.phrase ? '«' + x.phrase + '»' : '', x.key ? 'key ' + x.key : '', x.from && x.to && typeof x.from === 'string' ? x.from + '>' + x.to : '', x.mode ? 'mode ' + x.mode : '', x.via ? 'via ' + x.via : ''].filter(Boolean).join(' · ')])).join('') + '</table>';
+  // 2 fleetctl
+  h += '<h2>2. fleetctl attested acts — policy-audit.jsonl</h2><div class="meta">' + fl.length + ' records · files: ' + escapeHtml([...new Set(fl.map((r) => r._file))].join(', ') || 'none') + ' · append-only, not hash-chained (attested acts against policy; the control plane\'s chain above records who commanded them)</div>';
+  h += '<table>' + th(['ts', 'action', 'key / name', 'from → to', 'outcome', 'actor', 'attestation']) + fl.map((x) => td([x.ts, x.action || '', [x.key, x.name].filter(Boolean).join(' / '), (x.from !== undefined || x.to !== undefined) ? (JSON.stringify(x.from) + ' → ' + JSON.stringify(x.to)) : (x.role ? x.role + (x.scope ? ' @ ' + x.scope : '') : ''), x.outcome || '', x.actor || '', x.phrase || ''])).join('') + '</table>';
+  // 3 agents
+  for (const b of agentBlocks) {
+    h += '<h2>3. Agent chain — ' + escapeHtml(b.name) + ' (' + escapeHtml(b.profile || '?') + ') — logs/audit.jsonl</h2>';
+    h += '<div class="meta">' + (b.err ? '<span class="bad">' + escapeHtml(b.err) + '</span>' : (b.ver ? (b.ver.ok ? '<span class="ok">chain VERIFIED</span> · ' + escapeHtml(b.ver.length || 0) + ' entries' : '<span class="bad">chain BROKEN at entry ' + escapeHtml(b.ver.brokenAt) + ' of ' + escapeHtml(b.ver.length || 0) + '</span>') : 'chain: unread')) + ' · showing ' + b.rows.length + ' most recent (agent-verified; this document is a copy, the chain stays with the agent)</div>';
+    h += '<table>' + th(['ts', 'event', 'route', 'rc', 'duration', 'actor', 'on behalf of', 'detail']) + b.rows.map((x) => td([x.ts, x.event || '', x.route || '', x.exitCode !== undefined && x.exitCode !== null ? x.exitCode : '', x.durationMs !== undefined ? x.durationMs + 'ms' : '', who(x.actor), x.onBehalfOf ? who(x.onBehalfOf) : '', [x.name || '', x.job || '', x.jobId || '', x.protected !== undefined ? 'protected=' + x.protected : ''].filter(Boolean).join(' · ')])).join('') + '</table>';
+  }
+  h += '<div class="meta" style="margin-top:18px">end of export · ' + escapeHtml(gen) + '</div></body></html>';
+  return h;
+}
 // The ONE way this process reads policy: fleetctl's own loader and resolver, so the plane
 // and the CLI it spawns always read the same file -- $AEGIS_POLICY (the hosted plane's live,
 // untracked copy) or the checkout default -- and an attested change is seen by both at once.
@@ -406,7 +467,7 @@ const server = http.createServer(async (req, res) => {
       } catch { /* file absent is fine */ }
     };
     pull(AUDIT, 'aegis');
-    if (FLEET_IAC_ROOT) pull(path.join(FLEET_IAC_ROOT, 'provision', 'policy-audit.jsonl'), 'fleetctl');
+    for (const f of fleetctlLedgerFiles()) pull(f, 'fleetctl');
     rows.sort((a, b2) => String(b2.ts || '').localeCompare(String(a.ts || '')));
     return sendJson(res, { ok: true, rows: rows.slice(0, 25) });
   }
@@ -477,6 +538,15 @@ const server = http.createServer(async (req, res) => {
   // call so the control verifies the chain instead of merely asserting one exists.
   if (req.url === '/api/audit/verify' && req.method === 'GET') {
     return sendJson(res, { ok: true, chain: verifyChain() });
+  }
+  // Printable export (HTML, print to PDF from the browser). Read-only; the act of exporting is
+  // itself recorded on the control-plane chain, because a copy of the ledgers left the plane.
+  if (req.url === '/api/audit/export' && req.method === 'GET') {
+    const actor = actorOf(req);
+    audit({ action: 'audit-export', actor, outcome: 'ok' });
+    const html = await buildAuditExport(actor);
+    res.statusCode = 200; res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.setHeader('Cache-Control', 'no-store');
+    return res.end(html);
   }
 
   // Control-plane ledger tail for the Audit view. Deliberately NOT merged with the
