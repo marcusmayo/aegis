@@ -13,12 +13,18 @@
 // policy is re-read on every message: an attested change takes effect at once, and a
 // broken policy file reads as empty (fails closed).
 //
-// WHAT IT CAN DO. /agents /use <agent> /status /new /help, and plain text -> the sticky
-// target (per chat, persisted). A message beginning "<agent>: " goes to that agent once
-// without moving the sticky target. Nothing else exists here: no provisioning, policy,
-// migrate, decommission, relay or grant -- there is no code path for them, so no phrase
-// typed into a phone can reach them. /new resets the target's conversation (the one state
-// change), same as the panel's New.
+// WHAT IT CAN DO. Chat, and the per-agent OPERATOR CONTROLS the panel's cards expose --
+// the same agent endpoints, nothing the cards cannot do:
+//   /agents /use <agent> /status /new /help        chat + lock
+//   /web on|off                                    the agent's web-access toggle
+//   /model  |  /model <n|slug>                     list models (web-capable marked) | switch
+//   /staged  |  /process <name|all>                staged uploads awaiting Process | process them
+//   /queue                                         the agent's intake queue (read)
+//   plain text -> the locked target; "<agent>: <text>" goes to that agent once.
+// Nothing else exists here: no provisioning, policy, migrate, decommission, relay or grant --
+// there is no code path for them, so no phrase typed into a phone can reach them. Every state
+// change (/use /new /web /model /process) is ledgered with actor telegram:<chat id>. Heavy
+// lifting stays in the panel or the agent's own webchat.
 //
 // PROVENANCE. Every command is ledgered on the plane's chain with actor {src:'telegram',
 // id:<chat id>} through the same actorOf override the HTTP lanes use, and the agent is told
@@ -106,13 +112,34 @@ function start(deps) {
   const say = async (chatId, text) => { for (const part of chunk(text)) await api('sendMessage', { chat_id: chatId, text: part, disable_web_page_preview: true }); };
   const typing = (chatId) => api('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => {});
 
-  const help = () => 'Aegis — fleet control plane (read + chat only)\n' +
-    '/agents — list agents and which one this chat is locked to\n' +
+  const help = () => 'Aegis — fleet control plane (chat + agent controls; nothing destructive)\n' +
+    '/agents — list agents; ▸ marks the one this chat is locked to\n' +
     '/use <agent> — lock this chat to an agent\n' +
-    '/status — plane and target status\n' +
+    '/status — plane, target, web and model\n' +
     '/new — start a fresh conversation on the target\n' +
+    '/web on|off — the target\'s web access\n' +
+    '/model — list models (★ web-capable); /model <n|slug> — switch\n' +
+    '/staged — uploads awaiting Process; /process <name|all> — process them\n' +
+    '/queue — the target\'s intake queue\n' +
     'anything else — sent to the target agent\n' +
     '<agent>: <text> — one message to that agent without changing the lock';
+
+  // agent calls: JSON in, JSON out; a non-200 is reported as text, never thrown into the loop
+  const agentJson = async (agent, method, p, body, chatId) => {
+    const r = await deps.callAgent(agent, method, p, body, { src: 'telegram', id: chatId });
+    let j = null; try { j = JSON.parse(r && r.body || '{}'); } catch { j = null; }
+    return { status: r ? r.status : 0, json: j, raw: r ? String(r.body || '').slice(0, 200) : '' };
+  };
+  const modelInfo = async (agent, chatId) => {
+    const r = await agentJson(agent, 'GET', '/model', null, chatId);
+    if (r.status !== 200 || !r.json) return null;
+    return { options: r.json.options || [], active: r.json.active || null, webActive: !!r.json.webActive };
+  };
+  const modelLine = (mi) => {
+    if (!mi) return 'model: n/a';
+    return mi.options.map((o, i) => (i + 1) + '. ' + (o.slug === mi.active ? '▸ ' : '  ') + (o.label || o.slug) + (o.web ? ' ★' : '') + (o.label && o.label !== o.slug ? '  (' + o.slug + ')' : '')).join('\n') + '\nactive: ' + (mi.active || '?') + (mi.webActive ? '  · web ON' : '');
+  };
+  const webState = async (agent, chatId) => { const r = await agentJson(agent, 'GET', '/web-access', null, chatId); return r.status === 200 && r.json ? !!r.json.enabled : null; };
 
   async function handle(msg) {
     const chatId = String(msg.chat && msg.chat.id);
@@ -136,9 +163,76 @@ function start(deps) {
     }
     if (c.cmd === 'status') {
       const t = cur ? deps.agentByName(cur) : null;
-      let reach = 'n/a';
-      if (t) { try { const r = await deps.callAgent(t, 'GET', '/health/liveness', null, { src: 'telegram', id: chatId }); reach = r && r.status === 200 ? 'reachable' : ('HTTP ' + (r && r.status)); } catch (e) { reach = 'unreachable (' + String(e.message || e).slice(0, 80) + ')'; } }
-      return say(chatId, 'plane: ' + (deps.planeName ? deps.planeName() : 'aegis') + '\ntarget: ' + (cur || 'none') + (t ? '  ' + reach : '') + '\nagents: ' + agents.map((a) => a.name).join(', '));
+      let reach = 'n/a', extra = '';
+      if (t) {
+        try { const r = await deps.callAgent(t, 'GET', '/health/liveness', null, { src: 'telegram', id: chatId }); reach = r && r.status === 200 ? 'reachable' : ('HTTP ' + (r && r.status)); } catch (e) { reach = 'unreachable (' + String(e.message || e).slice(0, 80) + ')'; }
+        try { const w = await webState(t, chatId); const mi = await modelInfo(t, chatId); extra = '\nweb: ' + (w === null ? 'n/a' : (w ? 'ON' : 'OFF')) + '\nmodel: ' + (mi ? ((mi.options.find((o) => o.slug === mi.active) || {}).label || mi.active || '?') : 'n/a'); } catch { /* keep the basics */ }
+      }
+      return say(chatId, 'plane: ' + (deps.planeName ? deps.planeName() : 'aegis') + '\ntarget: ' + (cur || 'none') + (t ? '  ' + reach : '') + extra + '\nagents: ' + agents.map((a) => a.name).join(', '));
+    }
+    // ---- operator controls: the same agent endpoints as the panel's cards ----
+    const needTarget = () => { const t = cur ? deps.agentByName(cur) : null; if (!t) say(chatId, 'no target locked — /use <agent> first'); return t; };
+    if (c.cmd === 'web') {
+      const t = needTarget(); if (!t) return;
+      const arg = c.arg.toLowerCase();
+      if (arg !== 'on' && arg !== 'off') { const w = await webState(t, chatId); return say(chatId, t.name + ' web: ' + (w === null ? 'n/a' : (w ? 'ON' : 'OFF')) + '\n/web on | /web off'); }
+      const enable = arg === 'on';
+      deps.audit({ event: 'telegram-web', agent: t.name, actor, enabled: enable });
+      const r = await agentJson(t, 'POST', '/web-access', { enabled: enable }, chatId);
+      if (r.status !== 200) return say(chatId, 'web toggle failed: HTTP ' + r.status + (r.raw ? ' ' + r.raw : ''));
+      let note = '';
+      // web ON on a model that cannot search: switch to the first web-capable model, as the panel does
+      if (enable) { const mi = await modelInfo(t, chatId); if (mi) { const webs = mi.options.filter((o) => o.web); if (webs.length && !webs.some((o) => o.slug === mi.active)) { const w = webs[0]; const rr = await agentJson(t, 'POST', '/model/select', { slug: w.slug }, chatId); note = rr.status === 200 ? '\nmodel switched to ' + (w.label || w.slug) + ' (web-capable)' : '\n(active model is not web-capable and the switch failed: HTTP ' + rr.status + ' — /model to pick one)'; deps.audit({ event: 'telegram-model', agent: t.name, actor, slug: w.slug, reason: 'web-on' }); } } }
+      return say(chatId, t.name + ' web: ' + (enable ? 'ON' : 'OFF') + note);
+    }
+    if (c.cmd === 'model' || c.cmd === 'models') {
+      const t = needTarget(); if (!t) return;
+      const mi = await modelInfo(t, chatId);
+      if (!mi) return say(chatId, 'model list unavailable on ' + t.name);
+      if (!c.arg) return say(chatId, t.name + ' models:\n' + modelLine(mi) + '\n/model <n|slug> to switch');
+      let pick = null;
+      if (/^\d+$/.test(c.arg)) pick = mi.options[Number(c.arg) - 1] || null;
+      else pick = mi.options.find((o) => o.slug === c.arg || (o.label && o.label.toLowerCase() === c.arg.toLowerCase())) || null;
+      if (!pick) return say(chatId, 'unknown model — /model to list, then /model <n|slug>');
+      if (mi.webActive && !pick.web) return say(chatId, (pick.label || pick.slug) + ' cannot search and web is ON for ' + t.name + ' — /web off first, or pick a ★ model');
+      deps.audit({ event: 'telegram-model', agent: t.name, actor, slug: pick.slug });
+      const r = await agentJson(t, 'POST', '/model/select', { slug: pick.slug }, chatId);
+      return say(chatId, r.status === 200 ? t.name + ' model → ' + (pick.label || pick.slug) : 'model switch failed: HTTP ' + r.status + (r.raw ? ' ' + r.raw : ''));
+    }
+    if (c.cmd === 'staged') {
+      const t = needTarget(); if (!t) return;
+      const r = await agentJson(t, 'GET', '/files/staged', null, chatId);
+      if (r.status !== 200 || !r.json) return say(chatId, 'staged list unavailable on ' + t.name + (r.status === 404 ? ' (import lane not on this agent yet)' : ' (HTTP ' + r.status + ')'));
+      const files = r.json.files || [];
+      return say(chatId, files.length ? t.name + ' staged (→ ' + (r.json.dest || '?') + '):\n' + files.map((f, i) => (i + 1) + '. ' + f.name + '  ' + (f.bytes || 0) + ' b').join('\n') + '\n/process <name|n|all>' : t.name + ': nothing staged');
+    }
+    if (c.cmd === 'process') {
+      const t = needTarget(); if (!t) return;
+      const r = await agentJson(t, 'GET', '/files/staged', null, chatId);
+      if (r.status !== 200 || !r.json) return say(chatId, 'staged list unavailable on ' + t.name + ' (HTTP ' + r.status + ')');
+      const files = r.json.files || [];
+      if (!files.length) return say(chatId, t.name + ': nothing staged to process');
+      let targets = [];
+      if (!c.arg || c.arg === 'all') targets = files;
+      else if (/^\d+$/.test(c.arg)) targets = files[Number(c.arg) - 1] ? [files[Number(c.arg) - 1]] : [];
+      else targets = files.filter((f) => f.name === c.arg);
+      if (!targets.length) return say(chatId, 'no such staged file — /staged to list, then /process <name|n|all>');
+      const lines = [];
+      for (const f of targets) {
+        deps.audit({ event: 'telegram-process', agent: t.name, actor, file: f.name });
+        const pr = await agentJson(t, 'POST', '/files/process', { name: f.name }, chatId);
+        lines.push((pr.status === 200 ? '✓ ' : '✗ ') + f.name + (pr.status === 200 ? ' → ' + (r.json.dest || 'processed') : '  HTTP ' + pr.status + (pr.raw ? ' ' + pr.raw : '')));
+      }
+      return say(chatId, t.name + ' process:\n' + lines.join('\n'));
+    }
+    if (c.cmd === 'queue' || c.cmd === 'pending') {
+      const t = needTarget(); if (!t) return;
+      const r = await agentJson(t, 'GET', '/pending', null, chatId);
+      if (r.status !== 200 || !r.json) return say(chatId, 'queue unavailable on ' + t.name + ' (HTTP ' + r.status + ')');
+      const p = r.json; const items = Array.isArray(p.items) ? p.items : (Array.isArray(p) ? p : (p.groups && typeof p.groups === 'object' ? [].concat(...Object.values(p.groups).filter(Array.isArray)) : []));
+      const n = items.length || (typeof p.count === 'number' ? p.count : 0);
+      const names = items.slice(0, 15).map((it, i) => (i + 1) + '. ' + (typeof it === 'string' ? it : (it.name || it.file || it.id || JSON.stringify(it).slice(0, 60))));
+      return say(chatId, t.name + ' queue: ' + n + (names.length ? '\n' + names.join('\n') + (items.length > 15 ? '\n…' : '') : '') + '\n(ask the agent to process an item; the review lane lives in its webchat)');
     }
     if (c.cmd === 'new') {
       const t = cur ? deps.agentByName(cur) : null;
