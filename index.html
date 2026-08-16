@@ -7,7 +7,7 @@
   header h1{font-size:18px;margin:0;color:#c9a227}
   header .sub{color:var(--dim);font-size:var(--uifs,12px)}
   header button{margin-left:auto;background:#1e1e1e;border:1px solid var(--line);color:#aaa;border-radius:6px;padding:6px 14px;cursor:pointer}
-  .wrap{padding:20px 20px 20px 52px;display:grid;grid-template-columns:1fr;gap:20px}
+  .wrap{padding:20px 52px 20px 52px;display:grid;grid-template-columns:1fr;gap:20px}   /* both rails are 40px; open panels widen the padding on their side (relayout) so nothing is covered */
   h2{font-size:calc(var(--uifs,12px) + 1px);text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:0 0 10px}
   .fleet{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}
   .card{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent,#444);border-radius:8px;padding:14px}
@@ -60,6 +60,8 @@
   .planout{background:#0c0c0c;border:1px solid #1c1c1c;border-radius:6px;padding:10px;margin-top:8px;white-space:pre-wrap;word-break:break-word;min-height:80px;max-height:75vh;resize:vertical;overflow:auto;font:var(--uifs,12px)/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#cfcfcf}
   /* Left tool rail: 3 stacked tabs (Advanced / Provisioning / Decommission) sharing one panel */
   #toolRail{position:fixed;left:0;top:64px;z-index:61;display:flex;flex-direction:column;gap:6px}
+  #toolRailR{position:fixed;right:0;top:64px;z-index:61;display:flex;flex-direction:column;gap:6px}
+  #toolRailR .tool-tab{border-radius:6px 0 0 6px;box-shadow:-2px 2px 10px rgba(0,0,0,.4)}
   .tool-tab{writing-mode:vertical-rl;border:none;cursor:pointer;padding:15px 9px;font-weight:700;letter-spacing:2px;border-radius:0 6px 6px 0;color:#fff;box-shadow:2px 2px 10px rgba(0,0,0,.4)}
   .tool-tab.adv{background:#3b82f6}
   .tool-tab.prov{background:#c9a227;color:#111}
@@ -69,34 +71,39 @@
   .tool-tab.a2a{background:#0ea5e9;color:#04212e}
   .tool-tab.mig{background:#14b8a6;color:#042f2e}
   .tool-tab.audit{background:#e5e7eb;color:#111}
+  .tool-tab.cheat{background:#334155;color:#fff}
   .aud-ok{color:#22c55e;font-weight:700}.aud-bad{color:#ef4444;font-weight:700}
   .aud-pane{border:1px solid #232323;border-radius:8px;padding:8px;margin-top:8px;background:#0b0b0b}
   .aud-pane h4{margin:0 0 2px;font:700 12px monospace}
   .tool-tab.active{outline:2px solid #fff;outline-offset:-3px}
   #toolPanel{position:fixed;left:40px;top:64px;z-index:60;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-left:none;border-radius:0 8px 8px 0;max-height:84vh;overflow-y:auto;box-shadow:6px 0 18px rgba(0,0,0,.45)}
   #toolPanel.open{width:440px;opacity:1;padding:14px}
-  #toolGrip{position:absolute;top:0;right:0;width:7px;height:100%;cursor:ew-resize;z-index:5}
+  /* Right-hand panel: the technical tabs (Advanced, Policy, Audit, Provisioning, Decommission). Same panel
+     mechanics mirrored; the operator-facing tabs (Persona, Relay, Migrate, Cheatsheet) stay on the left. */
+  #toolPanelR{position:fixed;right:40px;top:64px;z-index:60;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-right:none;border-radius:8px 0 0 8px;max-height:84vh;overflow-y:auto;box-shadow:-6px 0 18px rgba(0,0,0,.45)}
+  #toolPanelR.open{width:520px;opacity:1;padding:14px}
+  #toolGripW,#toolRGripW,#toolGripH,#toolRGripH{transition:background .12s}
   .card.dragging{opacity:.45;outline:2px dashed #666;outline-offset:2px}
   .skchip{background:#1e1e1e;border:1px solid #2e2e2e;border-radius:4px;padding:1px 7px;cursor:pointer;color:#8ab4f8}
   .skchip:hover{background:#252525}
   .spin{display:inline-block;width:9px;height:9px;border:2px solid #444;border-top-color:#eab308;border-radius:50%;animation:aspin .8s linear infinite;vertical-align:-1px;margin-right:6px}
   @keyframes aspin{to{transform:rotate(360deg)}}
-  #toolGrip:hover{background:#26262666}
+  #toolGripW:hover,#toolRGripW:hover,#toolGripH:hover,#toolRGripH:hover{background:#26262666}
   .provrun{margin:8px 0;border:1px solid #262626;border-radius:8px;padding:8px;background:#0b0b0b}
   .provrun h4{margin:0 0 6px;font:600 12px monospace;color:#eab308}
   .provrun pre{max-height:200px;overflow:auto;margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--uifs,12px)}
-  #toolPanel h3{margin:0 0 8px;font-size:14px}
+  #toolPanel h3,#toolPanelR h3{margin:0 0 8px;font-size:14px}
   .tool-content{display:none}
   .tool-content.show{display:block}
   .tool-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0}
-  #toolPanel select,#toolPanel input,#toolPanel textarea{background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:6px;padding:6px 9px;font-family:monospace;font-size:var(--uifs,12px)}
-  #toolPanel input{max-width:150px}
+  #toolPanel select,#toolPanel input,#toolPanel textarea,#toolPanelR select,#toolPanelR input,#toolPanelR textarea{background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:6px;padding:6px 9px;font-family:monospace;font-size:var(--uifs,12px)}
+  #toolPanel input,#toolPanelR input{max-width:150px}
   /* Attestation fields exist to be READ while typed -- the 150px panel cap turned the
      sentence into a keyhole. Opting these out by class, rather than raising the cap for
      every input in the panel. */
-  #toolPanel input.attest,#toolPanel input.wide{max-width:none;width:100%;box-sizing:border-box}
-  #toolPanel #advEndpoint{flex:1;min-width:250px;max-width:none}
-  #toolPanel .adv-body{width:100%;max-width:none;box-sizing:border-box;resize:vertical;min-height:56px}
+  #toolPanel input.attest,#toolPanel input.wide,#toolPanelR input.attest,#toolPanelR input.wide{max-width:none;width:100%;box-sizing:border-box}
+  #toolPanelR #advEndpoint{flex:1;min-width:250px;max-width:none}
+  #toolPanelR .adv-body{width:100%;max-width:none;box-sizing:border-box;resize:vertical;min-height:56px}
   .mdl-sel{background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:5px;padding:3px 6px;font-family:monospace;font-size:calc(var(--uifs,12px) - 1px);max-width:100%}
   .webtog{border:none;border-radius:5px;padding:2px 12px;font-weight:700;cursor:pointer;font-size:calc(var(--uifs,12px) - 1px);font-family:monospace}
   .webtog.on{background:#22c55e;color:#052e13}
@@ -141,71 +148,18 @@
 </div>
 <div id="toolRail">
   <button class="tool-tab persona" onclick="openTool('persona')">&#9787; Persona</button>
-  <button class="tool-tab adv"  onclick="openTool('adv')">&#9998; Advanced</button>
-  <button class="tool-tab policy" onclick="openTool('policy')">&#9878; Policy</button>
   <button class="tool-tab a2a" onclick="openTool('a2a')">&#8644; Relay</button>
   <button class="tool-tab mig" onclick="openTool('mig')">&#8646; Migrate</button>
+  <button class="tool-tab cheat" onclick="openTool('cheat')">&#9776; Cheatsheet</button>
+</div>
+<div id="toolRailR">
+  <button class="tool-tab adv"  onclick="openTool('adv')">&#9998; Advanced</button>
+  <button class="tool-tab policy" onclick="openTool('policy')">&#9878; Policy</button>
+  <button class="tool-tab audit" onclick="openTool('audit')">&#9783; Audit</button>
   <button class="tool-tab prov" onclick="openTool('prov')">&#9881; Provisioning</button>
   <button class="tool-tab dec"  onclick="openTool('dec')">&#9760; Decommission</button>
 </div>
 <div id="toolPanel">
-  <div class="tool-content" id="tc-adv">
-    <h3>Advanced API console <span class="muted">(raw calls to the target)</span></h3>
-    <div class="muted" style="font-size:11px;margin-bottom:6px">target: <b id="advTarget">&mdash;</b> &middot; pick an endpoint &mdash; the body pre-fills where a POST needs one.</div>
-    <div class="tool-row"><select id="advEndpoint" onchange="advPick()"></select></div>
-    <div class="tool-row" id="advCustomRow" style="display:none">
-      <select id="advMethod"><option>GET</option><option>POST</option></select>
-      <input id="advPath" placeholder="/your/path" style="flex:1;min-width:160px">
-    </div>
-    <textarea id="advBody" class="adv-body" placeholder="JSON body (POST only) &mdash; leave empty for GET" rows="3"></textarea>
-    <div class="tool-row"><button class="send" onclick="advSend()">Send</button></div>
-    <pre class="planout" id="advOut"><span class="muted">response appears here&hellip;</span></pre>
-  </div>
-  <div class="tool-content" id="tc-prov">
-    <h3>Provisioning</h3>
-    <div class="tool-row"><span class="muted">name</span>
-      <input id="pvName" placeholder="a-z0-9-, 2-24 chars" oninput="pvAttestCheck()">
-    </div>
-    <div class="tool-row"><span class="muted">profile</span>
-      <select id="pvProfile"><option value="keel">keel (portfolio)</option><option value="castor">castor (vision)</option></select>
-    </div>
-    <div class="tool-row"><span class="muted">domain</span>
-      <input id="pvDomain" placeholder="domain" value="keel-pm.com">
-    </div>
-    <div class="tool-row"><span class="muted">operator email</span>
-      <input id="pvOpEmail" placeholder="blank = fleet default (aegis.config.json)" style="flex:1;min-width:200px">
-    </div>
-    <div class="tool-row"><button class="send" onclick="provisionPlan()">Preview provision</button></div>
-    <pre class="planout" id="provOut"><span class="muted">plan output appears here&hellip;</span></pre>
-    <div class="muted" style="font-size:11px;margin:8px 0 4px">To EXECUTE (creates cloud resources): 1) Write contract &rarr; 2) type the attestation sentence (<b style="color:#c9a227">I approve provisioning &lt;name&gt;</b>) and Execute &rarr; 3) once the stream shows the Key Vault created (~2 min in), <b>Seed keys from a SECOND Aegis tab</b> &mdash; the vault is created by up, and bootstrap fetches the keys near the end of the build (~8&ndash;10 min), so mid-build seeding is the correct window. fleetctl's preflight (caps &middot; budget &middot; placeholders &middot; operator email) stays the fail-closed gate &mdash; a failing check aborts with nothing created.</div>
-    <div class="tool-row"><button class="send" onclick="provisionWriteContract()">1. Write contract</button><button class="send" onclick="provisionPlanPersisted()">Plan (real contract)</button></div>
-    <div class="tool-row">
-      <input id="pvAttest" class="attest" placeholder="I approve provisioning <name>" oninput="pvAttestCheck()">
-      <button id="pvExec" class="send" onclick="provisionGo()" disabled>2. Execute up --go</button>
-    </div>
-    <div class="muted" style="font-size:var(--uifs,12px)" id="pvHint">type exactly: I approve provisioning &lt;name&gt;</div>
-    <div class="tool-row" style="display:none">
-    </div>
-    <div class="tool-row"><span class="muted">keys</span>
-      <input id="pvAnth" type="password" placeholder="sk-ant-&hellip; (Anthropic)" style="flex:1;min-width:150px">
-      <input id="pvOrk" type="password" placeholder="sk-or-&hellip; (OpenRouter)" style="flex:1;min-width:150px">
-      <button class="send" onclick="provisionSeed()" title="Run from a SECOND tab while up --go streams here - needs the Key Vault to exist">3. Seed vault (during build)</button>
-    </div>
-  </div>
-  <div class="tool-content" id="tc-dec">
-    <h3 style="color:#ef4444">Decommission &middot; preview <span class="muted">(read-only)</span></h3>
-    <div class="tool-row"><span class="muted">agent</span>
-      <input id="dcName" placeholder="existing agent name" oninput="dcAttestCheck()">
-      <button class="send" onclick="decommissionPlan()">Preview teardown</button>
-    </div>
-    <pre class="planout" id="decOut"><span class="muted">teardown plan appears here&hellip;</span></pre>
-    <div class="muted" style="font-size:11px;margin:8px 0 4px">To EXECUTE (destructive): type the attestation sentence below, then Execute. Aegis runs the teardown &mdash; no CLI; every attempt &mdash; approved or refused &mdash; is ledgered.</div>
-    <div class="tool-row">
-      <input id="dcAttest" class="attest" placeholder="I approve decommissioning <name>" oninput="dcAttestCheck()">
-      <button id="dcExec" class="send" style="background:#ef4444" onclick="decommissionGo()" disabled>Execute teardown (--go)</button>
-    </div>
-    <div class="muted" style="font-size:var(--uifs,12px)" id="dcHint">type exactly: I approve decommissioning &lt;name&gt;</div>
-  </div>
   <div class="tool-content" id="tc-persona">
     <h3 style="color:#a78bfa">Persona <span class="muted">&mdash; <b id="personaTarget">&mdash;</b></span></h3>
     <div class="muted" style="font-size:11px;margin-bottom:6px">Edit this agent's identity &amp; characteristics (business-like, analytical, humor&hellip;). Applies from the next message &mdash; no rebuild. Empty &amp; Save resets to the built-in default.</div>
@@ -213,21 +167,6 @@
     <textarea id="personaText" class="adv-body" placeholder="Load the target agent's persona, then edit&hellip;" rows="10" style="min-height:200px"></textarea>
     <div class="tool-row"><button class="send" onclick="personaSave()">Save persona</button></div>
     <pre class="planout" id="personaOut"><span class="muted">persona status appears here&hellip;</span></pre>
-  </div>
-  <div class="tool-content" id="tc-audit">
-    <h3 style="margin:4px 0 8px">Audit &middot; hash-chained ledgers</h3>
-    <div class="muted" style="font-size:var(--uifs,12px);margin-bottom:8px">Two independent chains, shown separately on purpose. The control plane records what was <b>commanded</b>; each agent records what it <b>did</b>. Neither can rewrite the other &mdash; so there is no single merged history to show, and a merged view would imply one.</div>
-    <button onclick="auditLoad()">Refresh</button>
-    <div class="aud-pane">
-      <h4 style="color:#e5e7eb">Control plane &middot; aegis-audit.jsonl</h4>
-      <div class="muted" style="font-size:11px" id="audAegisChain">chain: &mdash;</div>
-      <pre class="planout" id="audAegisOut" style="height:240px;max-height:none"><span class="muted">loading&hellip;</span></pre>
-    </div>
-    <div class="aud-pane">
-      <h4 style="color:#8ab4f8">Agents &middot; logs/audit.jsonl (per agent)</h4>
-      <div class="muted" style="font-size:11px">Each agent verifies only its own chain. Coverage compares its job records against its logged skill-runs &mdash; an intact chain that records nothing is not a pass.</div>
-      <pre class="planout" id="audAgentOut" style="height:300px;max-height:none"><span class="muted">loading&hellip;</span></pre>
-    </div>
   </div>
   <div class="tool-content" id="tc-a2a">
     <h3 style="margin:4px 0 8px">Relay <span class="muted">&mdash; agent to agent, operator-initiated</span></h3>
@@ -275,6 +214,23 @@
     <div class="muted" style="font-size:var(--uifs,12px);margin-top:4px" id="migHintLine">type exactly: I approve migrating &lt;from&gt; to &lt;to&gt;</div>
     <div style="margin-top:6px"><button id="migExec" class="send" style="background:#14b8a6;color:#042f2e" onclick="migrateGo()" disabled>Execute migration (--go)</button></div>
   </div>
+  <div class="tool-content" id="tc-cheat">
+    <div id="cheatBody" style="font:var(--uifs,12px)/1.55 ui-monospace,monospace;color:#cfcfcf;white-space:pre-wrap"><span class="muted">loading&hellip;</span></div>
+  </div>
+</div>
+<div id="toolPanelR">
+  <div class="tool-content" id="tc-adv">
+    <h3>Advanced API console <span class="muted">(raw calls to the target)</span></h3>
+    <div class="muted" style="font-size:11px;margin-bottom:6px">target: <b id="advTarget">&mdash;</b> &middot; pick an endpoint &mdash; the body pre-fills where a POST needs one.</div>
+    <div class="tool-row"><select id="advEndpoint" onchange="advPick()"></select></div>
+    <div class="tool-row" id="advCustomRow" style="display:none">
+      <select id="advMethod"><option>GET</option><option>POST</option></select>
+      <input id="advPath" placeholder="/your/path" style="flex:1;min-width:160px">
+    </div>
+    <textarea id="advBody" class="adv-body" placeholder="JSON body (POST only) &mdash; leave empty for GET" rows="3"></textarea>
+    <div class="tool-row"><button class="send" onclick="advSend()">Send</button></div>
+    <pre class="planout" id="advOut"><span class="muted">response appears here&hellip;</span></pre>
+  </div>
   <div class="tool-content" id="tc-policy">
     <h3 style="margin:4px 0 8px">Policy &middot; attested governance gate</h3>
     <div class="muted" style="font-size:var(--uifs,12px);margin-bottom:8px">Caps live in provision/aegis.policy.jsonc. Changing one requires typing the exact attestation sentence; the fleetctl CLI is the sole gate and every attempt &mdash; approved or refused &mdash; is ledgered.</div>
@@ -291,6 +247,66 @@
     <h4 style="margin:10px 0 4px">Recent attested actions (merged)</h4>
     <pre class="planout" id="attOut" style="max-height:200px"><span class="muted">timeline appears here&hellip;</span></pre>
   
+  <div class="tool-content" id="tc-audit">
+    <h3 style="margin:4px 0 8px">Audit &middot; hash-chained ledgers</h3>
+    <div class="muted" style="font-size:var(--uifs,12px);margin-bottom:8px">Two independent chains, shown separately on purpose. The control plane records what was <b>commanded</b>; each agent records what it <b>did</b>. Neither can rewrite the other &mdash; so there is no single merged history to show, and a merged view would imply one.</div>
+    <button onclick="auditLoad()">Refresh</button>
+    <div class="aud-pane">
+      <h4 style="color:#e5e7eb">Control plane &middot; aegis-audit.jsonl</h4>
+      <div class="muted" style="font-size:11px" id="audAegisChain">chain: &mdash;</div>
+      <pre class="planout" id="audAegisOut" style="height:240px;max-height:none"><span class="muted">loading&hellip;</span></pre>
+    </div>
+    <div class="aud-pane">
+      <h4 style="color:#8ab4f8">Agents &middot; logs/audit.jsonl (per agent)</h4>
+      <div class="muted" style="font-size:11px">Each agent verifies only its own chain. Coverage compares its job records against its logged skill-runs &mdash; an intact chain that records nothing is not a pass.</div>
+      <pre class="planout" id="audAgentOut" style="height:300px;max-height:none"><span class="muted">loading&hellip;</span></pre>
+    </div>
+  </div>
+  <div class="tool-content" id="tc-prov">
+    <h3>Provisioning</h3>
+    <div class="tool-row"><span class="muted">name</span>
+      <input id="pvName" placeholder="a-z0-9-, 2-24 chars" oninput="pvAttestCheck()">
+    </div>
+    <div class="tool-row"><span class="muted">profile</span>
+      <select id="pvProfile"><option value="keel">keel (portfolio)</option><option value="castor">castor (vision)</option></select>
+    </div>
+    <div class="tool-row"><span class="muted">domain</span>
+      <input id="pvDomain" placeholder="domain" value="keel-pm.com">
+    </div>
+    <div class="tool-row"><span class="muted">operator email</span>
+      <input id="pvOpEmail" placeholder="blank = fleet default (aegis.config.json)" style="flex:1;min-width:200px">
+    </div>
+    <div class="tool-row"><button class="send" onclick="provisionPlan()">Preview provision</button></div>
+    <pre class="planout" id="provOut"><span class="muted">plan output appears here&hellip;</span></pre>
+    <div class="muted" style="font-size:11px;margin:8px 0 4px">To EXECUTE (creates cloud resources): 1) Write contract &rarr; 2) type the attestation sentence (<b style="color:#c9a227">I approve provisioning &lt;name&gt;</b>) and Execute &rarr; 3) once the stream shows the Key Vault created (~2 min in), <b>Seed keys from a SECOND Aegis tab</b> &mdash; the vault is created by up, and bootstrap fetches the keys near the end of the build (~8&ndash;10 min), so mid-build seeding is the correct window. fleetctl's preflight (caps &middot; budget &middot; placeholders &middot; operator email) stays the fail-closed gate &mdash; a failing check aborts with nothing created.</div>
+    <div class="tool-row"><button class="send" onclick="provisionWriteContract()">1. Write contract</button><button class="send" onclick="provisionPlanPersisted()">Plan (real contract)</button></div>
+    <div class="tool-row">
+      <input id="pvAttest" class="attest" placeholder="I approve provisioning <name>" oninput="pvAttestCheck()">
+      <button id="pvExec" class="send" onclick="provisionGo()" disabled>2. Execute up --go</button>
+    </div>
+    <div class="muted" style="font-size:var(--uifs,12px)" id="pvHint">type exactly: I approve provisioning &lt;name&gt;</div>
+    <div class="tool-row" style="display:none">
+    </div>
+    <div class="tool-row"><span class="muted">keys</span>
+      <input id="pvAnth" type="password" placeholder="sk-ant-&hellip; (Anthropic)" style="flex:1;min-width:150px">
+      <input id="pvOrk" type="password" placeholder="sk-or-&hellip; (OpenRouter)" style="flex:1;min-width:150px">
+      <button class="send" onclick="provisionSeed()" title="Run from a SECOND tab while up --go streams here - needs the Key Vault to exist">3. Seed vault (during build)</button>
+    </div>
+  </div>
+  <div class="tool-content" id="tc-dec">
+    <h3 style="color:#ef4444">Decommission &middot; preview <span class="muted">(read-only)</span></h3>
+    <div class="tool-row"><span class="muted">agent</span>
+      <input id="dcName" placeholder="existing agent name" oninput="dcAttestCheck()">
+      <button class="send" onclick="decommissionPlan()">Preview teardown</button>
+    </div>
+    <pre class="planout" id="decOut"><span class="muted">teardown plan appears here&hellip;</span></pre>
+    <div class="muted" style="font-size:11px;margin:8px 0 4px">To EXECUTE (destructive): type the attestation sentence below, then Execute. Aegis runs the teardown &mdash; no CLI; every attempt &mdash; approved or refused &mdash; is ledgered.</div>
+    <div class="tool-row">
+      <input id="dcAttest" class="attest" placeholder="I approve decommissioning <name>" oninput="dcAttestCheck()">
+      <button id="dcExec" class="send" style="background:#ef4444" onclick="decommissionGo()" disabled>Execute teardown (--go)</button>
+    </div>
+    <div class="muted" style="font-size:var(--uifs,12px)" id="dcHint">type exactly: I approve decommissioning &lt;name&gt;</div>
+  </div>
 </div>
 <script>
 let AGENTS = [], PALETTE = {};
@@ -483,44 +499,6 @@ async function protGo(name){ const attest=($('#protattest-'+name)||{value:''}).v
   if(r&&r.ok){ PROTLIST=r.protectedAgents||PROTLIST; for(const a of AGENTS) renderProt(a.name); }
   else { const f=$('#protform-'+name); if(f){ f.style.display='block'; f.innerHTML='<div style="color:#ef4444;white-space:pre-wrap;font-size:var(--uifs,12px)">'+((r&&r.out)||(r&&r.error)||'REFUSED / ERROR')+'</div>'; } } }
 async function loadProtAgent(a){ try{ const r=await api(a.name,'GET','/protection'); if(r.status!==200) return; const j=JSON.parse(r.body); const should=PROTLIST.includes(a.name); const el=$('#protreq-'+a.name); if(el) el.textContent=j.requested?(' \u00B7 '+j.requested+' requested \u2192 complete ceremony here'):''; if(!!j.protected!==should){ api(a.name,'POST','/protection',{protected:should}); } }catch(e){} }
-// ---- Right-side Cheatsheet: attestation grammar, fleetctl refs, and a per-agent
-// section (skills click-to-run, keel exports as in-panel downloads, staged-file lane
-// with its one-line explanation). Everything here is agent-scoped, so nothing
-// profile-specific ever shows on the wrong agent.
-function ensureCheatRail(){
-  if(document.getElementById('cheatTab'))return;
-  const t=document.createElement('div'); t.id='cheatTab'; t.textContent='Cheatsheet';
-  t.style.cssText='position:fixed;right:0;top:180px;z-index:70;background:#334155;color:#fff;writing-mode:vertical-rl;padding:12px 6px;border-radius:8px 0 0 8px;cursor:pointer;font:600 13px system-ui;letter-spacing:.06em;user-select:none';
-  t.onclick=cheatToggle; document.body.appendChild(t);
-  const p=document.createElement('div'); p.id='cheatPanel';
-  p.style.cssText='position:fixed;right:0;top:64px;z-index:69;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-right:none;border-radius:8px 0 0 8px;max-height:none;box-shadow:-6px 0 18px rgba(0,0,0,.45)';
-  p.innerHTML='<div id="cheatBody" style="width:100%;height:100%;box-sizing:border-box;overflow:auto;padding:14px;font:var(--uifs,12px)/1.55 ui-monospace,monospace;color:#cfcfcf;white-space:pre-wrap"></div>';
-  document.body.appendChild(p);
-}
-// ---- Right-side Audit rail, stacked beneath the Cheatsheet. The pane markup is the
-// SAME #tc-audit node built with the panel -- it is relocated into a right-hand panel
-// here rather than duplicated, so the two-pane audit view has exactly one definition.
-// Its top offset is measured from the live Cheatsheet tab instead of hardcoded, so the
-// two stay flush if that label or the base font ever changes.
-function ensureAuditRail(){
-  if(document.getElementById('auditTab')) return;
-  const ct=document.getElementById('cheatTab');
-  const top = ct ? Math.round(ct.getBoundingClientRect().bottom + 8) : 300;
-  const t=document.createElement('div'); t.id='auditTab'; t.textContent='Audit';
-  t.style.cssText='position:fixed;right:0;top:'+top+'px;z-index:70;background:#e5e7eb;color:#111;writing-mode:vertical-rl;padding:12px 6px;border-radius:8px 0 0 8px;cursor:pointer;font:600 13px system-ui;letter-spacing:.06em;user-select:none';
-  t.onclick=auditToggle; document.body.appendChild(t);
-  const p=document.createElement('div'); p.id='auditPanel';
-  p.style.cssText='position:fixed;right:0;top:64px;z-index:69;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-right:none;border-radius:8px 0 0 8px;max-height:none;box-shadow:-6px 0 18px rgba(0,0,0,.45)';
-  const body=document.createElement('div'); body.id='auditBody';
-  body.style.cssText='width:100%;height:100%;box-sizing:border-box;overflow:auto;padding:14px';
-  const pane=document.getElementById('tc-audit');
-  // Leaving the pane in the .tool-content family made it collateral damage: openTool()
-  // clears .show from EVERY .tool-content, so opening any left-rail tab silently blanked
-  // this panel. Once relocated it is no longer one of those panes, so it drops the class
-  // and carries its own display -- nothing on the left rail can reach it.
-  if(pane){ pane.classList.remove('tool-content'); pane.classList.remove('show'); pane.style.display='block'; body.appendChild(pane); }
-  p.appendChild(body); document.body.appendChild(p);
-}
 let auditOpen=false;
 // The ledger is a live surface: an action taken in another pane must show up without
 // closing and reopening this one, or the operator learns to distrust what it shows.
@@ -528,46 +506,41 @@ let auditOpen=false;
 // appears immediately rather than up to the poll interval later.
 let auditTimer=null;
 function auditPoke(){ if(auditOpen) auditLoad(); }
-function auditToggle(){
-  const p=document.getElementById('auditPanel'); auditOpen=!auditOpen;
-  if(auditTimer){ clearInterval(auditTimer); auditTimer=null; }
-  if(auditOpen) auditTimer=setInterval(()=>{ if(auditOpen) auditLoad(); }, 10000);
-  if(auditOpen){
-    if(cheatOpen) cheatToggle();          // one right-hand panel at a time
-    const sz=panelSize(); p.style.width=sz.w; p.style.height=sz.h;
-    ensurePanelGrips(p,'audit'); p.style.opacity='1'; auditLoad();
-  } else { p.style.width='0'; p.style.opacity='0'; }
-}
-// Both right-hand panels resize on two axes: the LEFT edge sets width, the BOTTOM edge
-// sets height, and both persist. The inner body is width/height 100% so it tracks the
-// panel -- previously the body was pinned at 560px while the panel grew, and because the
-// panel is anchored right, widening it walked the fixed-width content across the screen
-// instead of revealing more of it.
-function ensurePanelGrips(panel, prefix){
-  const wKey='aegis-cheatw', hKey='aegis-cheath';
-  if(!document.getElementById(prefix+'GripW')){
-    const g=document.createElement('div'); g.id=prefix+'GripW'; g.title='drag to set width';
-    g.style.cssText='position:absolute;top:0;left:0;width:7px;height:100%;cursor:ew-resize;z-index:6';
+function auditStart(){ auditOpen=true; if(auditTimer){ clearInterval(auditTimer); auditTimer=null; } auditTimer=setInterval(()=>{ if(auditOpen) auditLoad(); }, 10000); auditLoad(); }
+function auditStop(){ auditOpen=false; if(auditTimer){ clearInterval(auditTimer); auditTimer=null; } }
+// Kept as names other code may call; both are ordinary tabs now.
+function auditToggle(){ openTool('audit'); }
+function cheatToggle(){ openTool('cheat'); }
+// Both panels resize on two axes: the free edge sets width, the bottom edge sets height, both
+// persist per side. Width is measured from the panel's own rail (40px), left or right.
+function ensurePanelGrips(panel, side){
+  const R = side==='R';
+  const wKey = R?'aegis-panelrw':'aegis-panelw', hKey = R?'aegis-panelrh':'aegis-panelh';
+  const pfx = R?'toolR':'tool';
+  if(!document.getElementById(pfx+'GripW')){
+    const g=document.createElement('div'); g.id=pfx+'GripW'; g.title='drag to set width';
+    g.style.cssText='position:absolute;top:0;'+(R?'left:0;':'right:0;')+'width:7px;height:100%;cursor:ew-resize;z-index:6';
     g.onmousedown=function(e){
       e.preventDefault();
       const move=function(ev){
-        const w=Math.min(Math.round(window.innerWidth*0.96),Math.max(380,window.innerWidth-ev.clientX));
-        panel.style.width=w+'px'; localStorage.setItem(wKey,String(w));
+        const raw = R ? (window.innerWidth-ev.clientX-40) : (ev.clientX-40);
+        const w=Math.min(Math.round(window.innerWidth*0.9),Math.max(320,raw));
+        panel.style.width=w+'px'; localStorage.setItem(wKey,String(w)); relayout();
       };
       const up=function(){ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); };
       document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
     };
     panel.appendChild(g);
   }
-  if(!document.getElementById(prefix+'GripH')){
-    const g=document.createElement('div'); g.id=prefix+'GripH'; g.title='drag to set height';
+  if(!document.getElementById(pfx+'GripH')){
+    const g=document.createElement('div'); g.id=pfx+'GripH'; g.title='drag to set height';
     g.style.cssText='position:absolute;left:0;bottom:0;height:8px;width:100%;cursor:ns-resize;z-index:6';
     g.onmousedown=function(e){
       e.preventDefault();
       const top=panel.getBoundingClientRect().top;
       const move=function(ev){
         const h=Math.min(Math.round(window.innerHeight-top-8),Math.max(200,Math.round(ev.clientY-top)));
-        panel.style.height=h+'px'; localStorage.setItem(hKey,String(h));
+        panel.style.height=h+'px'; panel.style.maxHeight='none'; localStorage.setItem(hKey,String(h));
       };
       const up=function(){ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); };
       document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
@@ -575,17 +548,16 @@ function ensurePanelGrips(panel, prefix){
     panel.appendChild(g);
   }
 }
-function panelSize(){
-  return { w:'min('+((localStorage.getItem('aegis-cheatw')||'560'))+'px,96vw)',
-           h:(localStorage.getItem('aegis-cheath')||Math.round(window.innerHeight*0.8))+'px' };
+// PUSH, not overlay: an open panel widens the main area's padding on its side by its own
+// width, so the fleet cards, controls and answer panes reflow beside it instead of underneath.
+// Widths come from the panel's intended style (not a mid-transition measurement).
+function panelWidth(panel, dflt){ if(!panel||!panel.classList.contains('open')) return 0; return parseInt(panel.style.width,10)||dflt; }
+function relayout(){
+  const w=document.querySelector('.wrap'); if(!w) return;
+  const lw=panelWidth(document.getElementById('toolPanel'),440), rw=panelWidth(document.getElementById('toolPanelR'),520);
+  w.style.paddingLeft=(52+lw)+'px'; w.style.paddingRight=(52+rw)+'px';
 }
-let cheatOpen=false;
-function cheatToggle(){
-  const p=document.getElementById('cheatPanel'); cheatOpen=!cheatOpen;
-  if(cheatOpen && auditOpen) auditToggle();
-  if(cheatOpen){ const sz=panelSize(); p.style.right='0'; p.style.width=sz.w; p.style.height=sz.h; ensurePanelGrips(p,'cheat'); p.style.opacity='1'; buildCheats(); }
-  else { p.style.width='0'; p.style.opacity='0'; }
-}
+window.addEventListener('resize', relayout);
 function esc(x){ return String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 async function buildCheats(){
   const b=document.getElementById('cheatBody'); if(!b)return;
@@ -750,21 +722,38 @@ async function ensureWebModelAegis(a){
   a._active = t.slug; loadModel(a);
 }
 let activeTool = null;
+const TOOL_SIDE = { persona:'L', a2a:'L', mig:'L', cheat:'L', adv:'R', policy:'R', audit:'R', prov:'R', dec:'R' };
+let activeToolR = null;   // right-hand panel state; activeTool (below/above) remains the left one
 function openTool(name){
-  const panel = document.getElementById('toolPanel');
-  if(activeTool === name){ panel.classList.remove('open'); panel.style.width=''; activeTool = null; document.querySelectorAll('.tool-tab').forEach(t=>t.classList.remove('active')); return; }
-  activeTool = name;
-  document.querySelectorAll('.tool-content').forEach(c=>c.classList.remove('show'));
+  const side = TOOL_SIDE[name] || 'L';
+  const panel = document.getElementById(side==='R' ? 'toolPanelR' : 'toolPanel');
+  const rail  = document.getElementById(side==='R' ? 'toolRailR'  : 'toolRail');
+  const cur   = side==='R' ? activeToolR : activeTool;
+  if(cur === name){
+    panel.classList.remove('open'); panel.style.width=''; panel.style.height='';
+    panel.querySelectorAll('.tool-content').forEach(c=>c.classList.remove('show'));
+    rail.querySelectorAll('.tool-tab').forEach(t=>t.classList.remove('active'));
+    if(side==='R') activeToolR=null; else activeTool=null;
+    if(name==='audit') auditStop();
+    relayout(); return;
+  }
+  if(cur==='audit') auditStop();
+  if(side==='R') activeToolR=name; else activeTool=name;
+  panel.querySelectorAll('.tool-content').forEach(c=>c.classList.remove('show'));
   document.getElementById('tc-'+name).classList.add('show');
   panel.classList.add('open');
-  const pw=localStorage.getItem('aegis-panelw'); if(pw) panel.style.width=pw+'px';
-  ensurePanelGrip(panel);
-  document.querySelectorAll('.tool-tab').forEach(t=>t.classList.remove('active'));
-  document.querySelector('.tool-tab.'+name).classList.add('active');
+  const pw=localStorage.getItem(side==='R'?'aegis-panelrw':'aegis-panelw'); if(pw) panel.style.width=pw+'px';
+  const ph=localStorage.getItem(side==='R'?'aegis-panelrh':'aegis-panelh'); if(ph){ panel.style.height=ph+'px'; panel.style.maxHeight='none'; }
+  ensurePanelGrips(panel, side);
+  rail.querySelectorAll('.tool-tab').forEach(t=>t.classList.remove('active'));
+  const tab=rail.querySelector('.tool-tab.'+name); if(tab) tab.classList.add('active');
   if(name==='persona') personaLoad();
   if(name==='policy') policyLoad();
   if(name==='a2a') a2aLoad();
   if(name==='mig') migLoad();
+  if(name==='cheat') buildCheats();
+  if(name==='audit') auditStart();
+  relayout();
 }
 
 // Advanced API console: a curated dropdown of the agent's real endpoints, each with a
@@ -1048,8 +1037,6 @@ async function sendRaw(){
     if(window.ResizeObserver){ new ResizeObserver(sync).observe(logEl); }
     window.addEventListener('resize', sync);
   })();
-  ensureCheatRail();
-  ensureAuditRail();
   document.getElementById('chatSend').onclick = chatSend;
   document.getElementById('prompt').addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); chatSend(); }});
 })();
@@ -1170,17 +1157,6 @@ async function provisionSeed(){
   $('#pvAnth').value = ''; $('#pvOrk').value = '';   // keys never linger in the DOM
 }
 // Panels are user-resizable: drag the right edge; width persists (shared with the cheatsheet).
-function ensurePanelGrip(panel){
-  if(document.getElementById('toolGrip')) return;
-  const g=document.createElement('div'); g.id='toolGrip'; g.title='drag to resize';
-  g.onmousedown=function(e){
-    e.preventDefault();
-    const move=function(ev){ const w=Math.min(940,Math.max(320,ev.clientX-40)); panel.style.width=w+'px'; localStorage.setItem('aegis-panelw',String(w)); };
-    const up=function(){ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); };
-    document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
-  };
-  panel.appendChild(g);
-}
 // Concurrent provisioning UI: one pane per run; the form frees immediately for the
 
 // next attested launch. The server enforces policy maxBatch on admission.
