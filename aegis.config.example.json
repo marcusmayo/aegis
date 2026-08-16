@@ -3,18 +3,18 @@
   "cfVaultName": "kv-keelpm-aegis",
   "agents": [
     {
-      "name": "heimdall",
+      "name": "agent-a",
       "profile": "castor",
-      "host": "heimdall.keel-pm.com",
-      "clientId": "PASTE-aegis-heimdall.CLIENT-ID.access",
-      "clientSecret": "PASTE-aegis-heimdall-CLIENT-SECRET"
+      "host": "agent-a.example.com",
+      "clientId": "PASTE-<plane>-agent-a.CLIENT-ID.access",
+      "clientSecret": "PASTE-<plane>-agent-a-CLIENT-SECRET"
     },
     {
-      "name": "bosun",
+      "name": "agent-b",
       "profile": "keel",
-      "host": "bosun.keel-pm.com",
-      "clientId": "PASTE-aegis-bosun.CLIENT-ID.access",
-      "clientSecret": "PASTE-aegis-bosun-CLIENT-SECRET"
+      "host": "agent-b.example.com",
+      "clientId": "PASTE-<plane>-agent-b.CLIENT-ID.access",
+      "clientSecret": "PASTE-<plane>-agent-b-CLIENT-SECRET"
     }
   ]
 }

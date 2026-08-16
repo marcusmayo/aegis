@@ -293,7 +293,7 @@ function planeName() {
 function sendJson(res, obj, status = 200) { res.statusCode = status; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(obj)); }
 
 // Destructive lanes need real Cloudflare credentials -- a placeholder CF_ACCOUNT_ID silently
-// orphaned heimdall's tunnel/DNS/Access/token during teardown. Fail closed with the exact fix.
+// orphaned an agent's tunnel/DNS/Access/token during teardown. Fail closed with the exact fix.
 function operatorEmail() {
   try { const c = JSON.parse(fs.readFileSync(CFG, 'utf8')); return (process.env.CF_OPERATOR_EMAIL || c.operatorEmail || '').trim(); }
   catch { return (process.env.CF_OPERATOR_EMAIL || '').trim(); }
@@ -317,7 +317,7 @@ function streamFleetctl(res, args, extraEnv, onDone) {
     env: { ...process.env, CF_OPERATOR_EMAIL: operatorEmail(), ...(extraEnv || {}), AEGIS_CONFIG: CFG, NO_COLOR: '1' },
   });
   // Heartbeat: long Azure operations (RG create/delete) buffer for minutes with zero output;
-  // a silent socket is where the heimdall-teardown stream died. Emit a liveness line whenever
+  // a silent socket is where a teardown stream once died. Emit a liveness line whenever
   // the child has been quiet >20s -- keeps the connection warm and the operator informed.
   const t0 = Date.now(); let lastOut = Date.now();
   const beat = setInterval(() => {

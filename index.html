@@ -242,7 +242,7 @@
     <pre class="planout" id="policyOut"><span class="muted">policy appears here&hellip;</span></pre>
     <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
       <select id="polKey" onchange="polHint()"><option>maxFleet</option><option>maxBatch</option><option>budget</option><option>allowedRegions</option><option>defaultRegion</option><option>budgetName</option><option>protectedAgents</option><option>a2aPairs</option></select>
-      <input id="polVal" class="wide" placeholder="value (e.g. 6, or heimdall&gt;bosun,bosun&gt;heimdall)" oninput="polHint()">
+      <input id="polVal" class="wide" placeholder="value (e.g. 6 for maxFleet, or from&gt;to,to&gt;from for a2aPairs)" oninput="polHint()">
     </div>
     <input id="polAttest" class="attest" placeholder="type the attestation sentence in full">
     <div class="muted" style="font-size:var(--uifs,12px);margin-top:4px" id="polHintLine">required: I approve setting maxFleet to &lt;n&gt;</div>
@@ -278,7 +278,7 @@
       <input id="pvDomain" placeholder="domain" value="keel-pm.com">
     </div>
     <div class="tool-row"><span class="muted">operator email</span>
-      <input id="pvOpEmail" placeholder="blank = fleet default (aegis.config.json)" style="flex:1;min-width:200px">
+      <input id="pvOpEmail" placeholder="blank = fleet default (aegis.config.json)" style="flex:1;min-width:200px;max-width:none">
     </div>
     <div class="tool-row"><button class="send" onclick="provisionPlan()">Preview provision</button></div>
     <pre class="planout" id="provOut"><span class="muted">plan output appears here&hellip;</span></pre>
@@ -297,15 +297,15 @@
       <button class="send" onclick="provisionSeed()" title="Run from a SECOND tab while up --go streams here - needs the Key Vault to exist">3. Seed vault (during build)</button>
     </div>
     <h4 style="margin:14px 0 4px;color:#c9a227">Enroll an existing agent <span class="muted" style="font-weight:400">&mdash; into this plane, with its own token</span></h4>
-    <div class="muted" style="font-size:var(--uifs,12px);margin-bottom:6px">For an agent that already runs (bosun, heimdall, one you re-provisioned): reads its identity from Azure, mints a service token named after this plane, attaches the Service Auth policy to its Access app, and writes the registry. Nothing typed, nothing pasted. Refuses a control-plane RG, an unknown RG, or a missing front door.</div>
-    <div class="tool-row"><span class="muted">agent</span>
-      <input id="enName" placeholder="existing agent name" oninput="enAttestCheck()">
-      <button class="send" onclick="enrollPlan()">Preview enrol</button>
+    <div class="muted" style="font-size:var(--uifs,12px);margin-bottom:6px">For an agent that already runs (provisioned earlier, or re-provisioned): reads its identity from Azure, mints a service token named after this plane, attaches the Service Auth policy to its Access app, and writes the registry. Nothing typed, nothing pasted. Refuses a control-plane RG, an unknown RG, or a missing front door.</div>
+    <div class="tool-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="muted">agent</span>
+      <input id="enName" style="flex:1;min-width:260px;max-width:none" placeholder="name of an existing agent" oninput="enAttestCheck()">
+      <button class="send" onclick="enrollPlan()">Preview enrollment</button>
     </div>
-    <pre class="planout" id="enOut" style="min-height:60px"><span class="muted">enrol plan appears here&hellip;</span></pre>
+    <pre class="planout" id="enOut" style="min-height:60px"><span class="muted">enrollment plan appears here&hellip;</span></pre>
     <input id="enAttest" class="attest" placeholder="I approve enrolling <name> in the control plane <plane>" oninput="enAttestCheck()">
     <div class="muted" style="font-size:var(--uifs,12px);margin-top:4px" id="enHint">type exactly: I approve enrolling &lt;name&gt; in the control plane &lt;plane&gt;</div>
-    <div style="margin-top:6px"><button id="enExec" class="send" onclick="enrollGo()" disabled>Enrol (--go)</button></div>
+    <div style="margin-top:6px"><button id="enExec" class="send" onclick="enrollGo()" disabled>Enroll (--go)</button></div>
   </div>
   <div class="tool-content" id="tc-dec">
     <h3 style="color:#ef4444">Decommission &middot; preview <span class="muted">(read-only)</span></h3>
@@ -1290,7 +1290,7 @@ function enAttestCheck(){
   const h=$('#enHint'); const b=$('#enExec'); if(!h||!b) return;
   const req=enSentence(name); const ok=!!name&&!!PLANE&&typed===req;
   b.disabled=!ok;
-  if(ok){ h.style.color='#22c55e'; h.textContent='\u2713 phrase matches \u2014 Enrol enabled'; }
+  if(ok){ h.style.color='#22c55e'; h.textContent='\u2713 phrase matches \u2014 Enroll enabled'; }
   else if(typed){ h.style.color='#ef4444'; h.textContent='MISMATCH \u2014 type exactly: '+req; }
   else { h.style.color=''; h.textContent='type exactly: '+req; }
 }
