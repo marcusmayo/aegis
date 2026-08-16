@@ -638,7 +638,12 @@ const server = http.createServer(async (req, res) => {
   // agents, different ledgers. $AEGIS_PLANE wins, else the host name -- the same rule
   // fleetctl enroll uses to name a plane's service tokens.
   if (req.url === '/api/plane' && req.method === 'GET') {
-    return sendJson(res, { plane: planeName(), bind: HOST + ':' + PORT, fleetctl: !!FLEET_IAC_ROOT, cf: cfEnvProblem() ? 'not ready' : 'ok', telegram: telegram.state.on ? 'on' : ('off' + (telegram.state.reason ? ' (' + telegram.state.reason + ')' : '')) });
+    const ts = telegram.state;
+    return sendJson(res, { plane: planeName(), bind: HOST + ':' + PORT, fleetctl: !!FLEET_IAC_ROOT, cf: cfEnvProblem() ? 'not ready' : 'ok',
+      telegram: ts.on ? 'on' : ('off' + (ts.reason ? ' (' + ts.reason + ')' : '')),
+      // live counters: is it polling, where is the cursor, what failed last, and which chats
+      // knocked without being allowlisted (the onboarding read-out -- your own id appears here)
+      telegramDetail: { on: ts.on, bot: ts.bot || null, source: ts.source, polls: ts.polls, offset: ts.offset, lastError: ts.lastError || null, lastPollAt: ts.lastPollAt || null, unknownChats: Object.keys(ts.chatsSeen || {}) } });
   }
   // ---- Enroll: adopt an already-provisioned agent into THIS plane with its own token
   // (fleetctl enroll). The plane label is pinned on the argv so the token name and the

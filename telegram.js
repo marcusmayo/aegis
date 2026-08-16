@@ -37,7 +37,7 @@ const MAX_MSG = 4096;
 const MAX_PROMPT = 4000;
 const NAME_RE = /^[a-z][a-z0-9-]{1,23}$/;
 
-const state = { on: false, source: '', reason: 'not started', chatsSeen: {}, lastError: '', polls: 0, offset: 0 };
+const state = { on: false, source: '', reason: 'not started', chatsSeen: {}, lastError: '', polls: 0, offset: 0, lastPollAt: null, bot: '' };
 
 function az(args) {
   const r = process.platform === 'win32'
@@ -91,7 +91,14 @@ function start(deps) {
   const saveSticky = () => { try { fs.writeFileSync(stateFile, JSON.stringify(sticky, null, 2)); } catch { /* best effort */ } };
 
   const api = async (method, body) => {
-    const r = await f(base + method, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+    // hard deadline: (long-poll timeout + 15s) or 20s -- a hung socket must surface as an error
+    // in the journal and a retry, never as a silent stall of the whole lane
+    const deadline = ((body && body.timeout) || 0) * 1000 + 15000;
+    const ac = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const timer = ac ? setTimeout(() => ac.abort(), deadline) : null;
+    let r;
+    try { r = await f(base + method, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}), signal: ac ? ac.signal : undefined }); }
+    finally { if (timer) clearTimeout(timer); }
     let j = null; try { j = await r.json(); } catch { /* ignore */ }
     if (!j || !j.ok) throw new Error(method + ' failed: ' + (j && j.description ? j.description : ('HTTP ' + r.status)));
     return j.result;
@@ -165,13 +172,16 @@ function start(deps) {
   async function loop() {
     let backoff = 5000;
     // On start, skip the backlog: commands typed while the plane was down are not executed late.
-    try { const u = await api('getUpdates', { offset: -1, timeout: 0 }); if (u && u.length) state.offset = u[u.length - 1].update_id + 1; } catch { /* first poll will set it */ }
+    try { const u = await api('getUpdates', { offset: -1, timeout: 0 }); if (u && u.length) state.offset = u[u.length - 1].update_id + 1; log('start: skipped ' + (u ? u.length : 0) + ' backlog update(s), polling from offset ' + state.offset); }
+    catch (e) { log('start: backlog read failed (' + String(e.message || e) + ') — polling from offset 0'); }
     for (;;) {
       if (!state.on) return;
       try {
         state.polls++;
         const updates = await api('getUpdates', { offset: state.offset, timeout: 25, allowed_updates: ['message'] });
+        state.lastPollAt = new Date().toISOString();
         backoff = 5000;
+        if (updates && updates.length) log('poll: ' + updates.length + ' update(s), offset ' + state.offset);
         for (const u of updates || []) {
           state.offset = Math.max(state.offset, u.update_id + 1);
           if (u.message && u.message.text) { try { await handle(u.message); } catch (e) { state.lastError = String(e.message || e); log('handle error: ' + state.lastError); } }
@@ -182,8 +192,16 @@ function start(deps) {
       }
     }
   }
-  loop().catch((e) => { state.on = false; state.reason = 'loop died: ' + String(e.message || e); log(state.reason); });
-  log('on — token from ' + state.source + ', long-poll, allowlist from policy telegramChatIds');
+  // Whose token is this? Ask Telegram before claiming 'on': a token that resolves to the wrong
+  // bot (or none) must be legible in the journal and /api/plane, not discovered by silence.
+  api('getMe').then((me) => {
+    state.bot = (me && me.username) ? '@' + me.username : '(no username)';
+    log('on — bot ' + state.bot + ', token from ' + state.source + ', long-poll, allowlist from policy telegramChatIds');
+    loop().catch((e) => { state.on = false; state.reason = 'loop died: ' + String(e.message || e); log(state.reason); });
+  }).catch((e) => {
+    state.on = false; state.reason = 'getMe failed (' + String(e.message || e) + ') — token invalid or Telegram unreachable; lane off';
+    log(state.reason);
+  });
   return state;
 }
 
