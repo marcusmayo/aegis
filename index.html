@@ -262,7 +262,6 @@
     <h3 style="margin:4px 0 8px">Audit &middot; hash-chained ledgers</h3>
     <div class="muted" style="font-size:var(--uifs,12px);margin-bottom:8px">Two independent chains, shown separately on purpose. The control plane records what was <b>commanded</b>; each agent records what it <b>did</b>. Neither can rewrite the other &mdash; so there is no single merged history to show, and a merged view would imply one.</div>
     <button onclick="auditLoad()">Refresh</button>
-    <button onclick="window.open('/api/audit/export','_blank')" title="One self-contained page with all three ledgers, each with its own verification result, never merged - print it or save as PDF from the browser">Export printable report</button>
     <div class="aud-pane">
       <h4 style="color:#e5e7eb">Control plane &middot; aegis-audit.jsonl</h4>
       <div class="muted" style="font-size:11px" id="audAegisChain">chain: &mdash;</div>
@@ -1403,6 +1402,30 @@ async function syncWeb(){
   }
 }
 setInterval(syncWeb, 8000);
+
+// Keep each card's accent in sync with a colour set elsewhere (the agent's own webchat, or
+// /color in its chat) -- the same shape as syncModels and syncWeb: poll, apply only on a real
+// change, touch nothing else. The accent is per-agent state, so a change in one surface should
+// not need a manual refresh of the other.
+async function syncAccents(){
+  for(const a of (AGENTS||[])){
+    const card = document.getElementById('card-'+a.name); if(!card) continue;
+    try{
+      const r = await api(a.name,'GET','/color');
+      if(r.status!==200) continue;
+      const j = JSON.parse(r.body);
+      if(!j || !j.accent || j.accent === a._accent) continue;
+      a._accent = j.accent;
+      PALETTE = j.palette || PALETTE;
+      card.style.setProperty('--accent', j.accent);
+      const nm = document.getElementById('nm-'+a.name); if(nm) nm.style.color = j.accent;
+      const rc = document.getElementById('rc-'+a.name);
+      if(rc) rc.innerHTML = '<span class="swatch" style="background:'+j.accent+'"></span> accent '+j.accent+' &middot; reachable';
+      renderPalette();
+    }catch{}
+  }
+}
+setInterval(syncAccents, 10000);
 
 loadFleet();
 advInit();
