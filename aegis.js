@@ -18,9 +18,12 @@ const HOST = process.env.AEGIS_BIND || '127.0.0.1';
 const CFG = path.join(__dirname, 'aegis.config.json');
 const AUDIT = path.join(__dirname, 'aegis-audit.jsonl');
 
+// A missing registry is a WARNING, not an exit: under systemd an exit here is a restart loop
+// (found on the hosted plane's first boot -- 150s of ExecStartPre per attempt, restart counter
+// climbing, nothing wrong with the unit). The control plane can exist before its first agent;
+// the panel shows an empty fleet and the enroll lane fills the registry, no restart needed.
 if (!fs.existsSync(CFG)) {
-  console.error('Missing aegis.config.json - copy aegis.config.example.json, fill in your service tokens.');
-  process.exit(1);
+  console.error('aegis.config.json not found at ' + CFG + ' - starting with an EMPTY fleet. Enroll agents with `fleetctl enroll <agent>` (or copy aegis.config.example.json for a workstation plane).');
 }
 
 // Config is re-read from disk on demand so a freshly-registered agent shows up
@@ -33,7 +36,8 @@ function loadAgents() {
     const cfg = JSON.parse(fs.readFileSync(CFG, 'utf8'));
     lastGoodAgents = Array.isArray(cfg.agents) ? cfg.agents : [];
   } catch (e) {
-    console.error('aegis.config.json re-read failed (' + e.message + ') - keeping last-good fleet');
+    // absent registry: already warned at boot; anything else (bad JSON) is worth repeating
+    if (e && e.code !== 'ENOENT') console.error('aegis.config.json re-read failed (' + e.message + ') - keeping last-good fleet');
   }
   return lastGoodAgents;
 }
