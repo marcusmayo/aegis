@@ -296,6 +296,16 @@
       <input id="pvOrk" type="password" placeholder="sk-or-&hellip; (OpenRouter)" style="flex:1;min-width:150px">
       <button class="send" onclick="provisionSeed()" title="Run from a SECOND tab while up --go streams here - needs the Key Vault to exist">3. Seed vault (during build)</button>
     </div>
+    <h4 style="margin:14px 0 4px;color:#c9a227">Enroll an existing agent <span class="muted" style="font-weight:400">&mdash; into this plane, with its own token</span></h4>
+    <div class="muted" style="font-size:var(--uifs,12px);margin-bottom:6px">For an agent that already runs (bosun, heimdall, one you re-provisioned): reads its identity from Azure, mints a service token named after this plane, attaches the Service Auth policy to its Access app, and writes the registry. Nothing typed, nothing pasted. Refuses a control-plane RG, an unknown RG, or a missing front door.</div>
+    <div class="tool-row"><span class="muted">agent</span>
+      <input id="enName" placeholder="existing agent name" oninput="enAttestCheck()">
+      <button class="send" onclick="enrollPlan()">Preview enrol</button>
+    </div>
+    <pre class="planout" id="enOut" style="min-height:60px"><span class="muted">enrol plan appears here&hellip;</span></pre>
+    <input id="enAttest" class="attest" placeholder="I approve enrolling <name> in the control plane <plane>" oninput="enAttestCheck()">
+    <div class="muted" style="font-size:var(--uifs,12px);margin-top:4px" id="enHint">type exactly: I approve enrolling &lt;name&gt; in the control plane &lt;plane&gt;</div>
+    <div style="margin-top:6px"><button id="enExec" class="send" onclick="enrollGo()" disabled>Enrol (--go)</button></div>
   </div>
   <div class="tool-content" id="tc-dec">
     <h3 style="color:#ef4444">Decommission &middot; preview <span class="muted">(read-only)</span></h3>
@@ -1268,9 +1278,41 @@ async function migrateGo(){
   finally{ $('#migAttest').value=''; migAttestCheck(); if(typeof auditPoke==='function') auditPoke(); setTimeout(loadFleet,600); }
 }
 // Which plane am I on? Two planes exist; the header must say which one is being commanded.
+let PLANE='';
 async function loadPlane(){
-  try{ const j=await (await fetch('/api/plane')).json(); const el=$('#planeSub'); if(el&&j.plane){ el.textContent='fleet control plane \u00b7 '+j.plane; document.title='Aegis \u00b7 '+j.plane; } }
+  try{ const j=await (await fetch('/api/plane')).json(); const el=$('#planeSub'); if(el&&j.plane){ PLANE=j.plane; el.textContent='fleet control plane \u00b7 '+j.plane; document.title='Aegis \u00b7 '+j.plane; if(typeof enAttestCheck==='function') enAttestCheck(); } }
   catch(e){ /* header keeps its placeholder; nothing else depends on it */ }
+}
+// ---- Enroll (Provisioning pane): plan + tri-state attestation + streamed --go, mirroring Decommission
+function enSentence(name){ return 'I approve enrolling '+(name||'<name>')+' in the control plane '+(PLANE||'<plane>'); }
+function enAttestCheck(){
+  const name=($('#enName')?$('#enName').value:'').trim(); const typed=($('#enAttest')?$('#enAttest').value:'').trim();
+  const h=$('#enHint'); const b=$('#enExec'); if(!h||!b) return;
+  const req=enSentence(name); const ok=!!name&&!!PLANE&&typed===req;
+  b.disabled=!ok;
+  if(ok){ h.style.color='#22c55e'; h.textContent='\u2713 phrase matches \u2014 Enrol enabled'; }
+  else if(typed){ h.style.color='#ef4444'; h.textContent='MISMATCH \u2014 type exactly: '+req; }
+  else { h.style.color=''; h.textContent='type exactly: '+req; }
+}
+async function enrollPlan(){
+  const name=$('#enName').value.trim(); const out=$('#enOut');
+  if(!name){ out.textContent='enter an agent name'; return; }
+  out.textContent='planning\u2026 (reads the agent RG, its Access app and this plane\u2019s token)\n';
+  try{ const r=await fetch('/api/enroll/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})}); const j=await r.json(); out.textContent=j.out||j.error||('HTTP '+r.status); }
+  catch(e){ out.textContent='request failed: '+e.message; }
+}
+async function enrollGo(){
+  const name=$('#enName').value.trim(); const attest=$('#enAttest').value.trim(); const required=enSentence(name);
+  const out=$('#enOut'); const btn=$('#enExec');
+  if(attest!==required){ out.textContent='type exactly:  '+required; return; }
+  btn.disabled=true; out.textContent='enrolling\u2026\n\n';
+  try{
+    const r=await fetch('/api/enroll/go',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,attest})});
+    const ct=r.headers.get('content-type')||'';
+    if(!r.ok&&ct.includes('json')){ const j=await r.json(); out.textContent=j.out||j.error||('HTTP '+r.status); }
+    else{ const reader=r.body.getReader(); const dec=new TextDecoder(); out.textContent=''; while(true){ const {done,value}=await reader.read(); if(done) break; out.textContent+=dec.decode(value,{stream:true}); out.scrollTop=out.scrollHeight; } }
+  }catch(e){ out.textContent+='\nrequest failed: '+e.message; }
+  finally{ $('#enAttest').value=''; enAttestCheck(); if(typeof auditPoke==='function') auditPoke(); setTimeout(loadFleet,600); }
 }
 function decommissionPlan(){
   const name = $('#dcName').value.trim();

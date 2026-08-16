@@ -284,6 +284,12 @@ async function runFleetctl(args) {
   });
 }
 
+// This plane's label: $AEGIS_PLANE, else the host name, slugged -- the same rule fleetctl enroll
+// uses to name a plane's service tokens, so the panel and the lane never disagree about it.
+function planeName() {
+  const raw = (process.env.AEGIS_PLANE || os.hostname() || 'aegis').toLowerCase();
+  return raw.replace(/[^a-z0-9-]/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'aegis';
+}
 function sendJson(res, obj, status = 200) { res.statusCode = status; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(obj)); }
 
 // Destructive lanes need real Cloudflare credentials -- a placeholder CF_ACCOUNT_ID silently
@@ -622,9 +628,34 @@ const server = http.createServer(async (req, res) => {
   // agents, different ledgers. $AEGIS_PLANE wins, else the host name -- the same rule
   // fleetctl enroll uses to name a plane's service tokens.
   if (req.url === '/api/plane' && req.method === 'GET') {
-    const raw = (process.env.AEGIS_PLANE || os.hostname() || 'aegis').toLowerCase();
-    const plane = raw.replace(/[^a-z0-9-]/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'aegis';
-    return sendJson(res, { plane, bind: HOST + ':' + PORT, fleetctl: !!FLEET_IAC_ROOT, cf: cfEnvProblem() ? 'not ready' : 'ok' });
+    return sendJson(res, { plane: planeName(), bind: HOST + ':' + PORT, fleetctl: !!FLEET_IAC_ROOT, cf: cfEnvProblem() ? 'not ready' : 'ok' });
+  }
+  // ---- Enroll: adopt an already-provisioned agent into THIS plane with its own token
+  // (fleetctl enroll). The plane label is pinned on the argv so the token name and the
+  // attestation sentence are exactly what this plane calls itself, never a guess.
+  if (req.url === '/api/enroll/plan' && req.method === 'POST') {
+    const b = await readBody(req);
+    const name = String(b.name || '').trim();
+    if (!NAME_RE.test(name)) return sendJson(res, { ok: false, out: 'invalid agent name — must match ^[a-z][a-z0-9-]{1,23}$' }, 400);
+    const r = await runFleetctl(['enroll', name, '--plane=' + planeName()]);
+    audit({ action: 'enroll-plan', name, plane: planeName(), code: r.code });
+    return sendJson(res, { ok: r.code === 0, code: r.code, out: panelClean(r.out) });
+  }
+  if (req.url === '/api/enroll/go' && req.method === 'POST') {
+    const b = await readBody(req);
+    const name = String(b.name || '').trim();
+    const attest = String(b.attest || '');
+    if (!NAME_RE.test(name)) return sendJson(res, { ok: false, out: 'invalid agent name — must match ^[a-z][a-z0-9-]{1,23}$' }, 400);
+    const plane = planeName();
+    const required = 'I approve enrolling ' + name + ' in the control plane ' + plane;
+    const actor = actorOf(req);
+    const base = { action: 'enroll-go', name, plane, actor };
+    if (attest.trim() !== required) {
+      audit({ ...base, phrase: attest, outcome: 'refused: attestation mismatch' });
+      return sendJson(res, { ok: false, out: 'REFUSED — attestation must read exactly:\n  ' + required }, 400);
+    }
+    audit({ ...base, phrase: attest, outcome: 'started' });
+    return streamFleetctl(res, ['enroll', name, '--plane=' + plane, '--go', '--attest', attest.trim()], null, (code) => audit({ ...base, phrase: attest, outcome: code === 0 ? 'done' : 'exit ' + code }));
   }
   // ---- Migrate: agent -> agent, mediated by THIS plane (fleetctl migrate) ------------
   // Plan is read-only (fleetctl reads both agents' volumes over run-command; ~1 min).
