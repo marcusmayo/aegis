@@ -240,25 +240,26 @@ function contractFor(name, opts = {}) {
 // entries clear on stream close/error, so a crashed aegis restart clears the ledger too.
 const ACTIVE_GO = new Map();
 
+// The ONE way this process reads policy: fleetctl's own loader and resolver, so the plane
+// and the CLI it spawns always read the same file -- $AEGIS_POLICY (the hosted plane's live,
+// untracked copy) or the checkout default -- and an attested change is seen by both at once.
+function loadPolicyCanonical() {
+  const pol = require(path.join(FLEET_IAC_ROOT, 'provision', 'lib', 'policy.js'));
+  return pol.loadPolicy(pol.resolvePolicyPath());
+}
 // Directed A2A allowlist, read through the canonical policy loader. Fails CLOSED: any
 // read problem yields an empty list, so a broken policy file disables relaying rather
 // than silently permitting it. Not cached -- an operator who has just attested a pair
 // expects it to take effect, and this runs once per relay, not per request.
 function readA2aPairs() {
-  try {
-    const pol = require(path.join(FLEET_IAC_ROOT, 'provision', 'lib', 'policy.js'))
-      .loadPolicy(path.join(FLEET_IAC_ROOT, 'provision', 'aegis.policy.jsonc'));
-    return Array.isArray(pol.a2aPairs) ? pol.a2aPairs.map(String) : [];
-  } catch (e) { return []; }
+  try { const pol = loadPolicyCanonical(); return Array.isArray(pol.a2aPairs) ? pol.a2aPairs.map(String) : []; }
+  catch (e) { return []; }
 }
 
 // Telegram allowlist, same loader, same fail-closed shape: unreadable => nobody.
 function readTelegramChatIds() {
-  try {
-    const pol = require(path.join(FLEET_IAC_ROOT, 'provision', 'lib', 'policy.js'))
-      .loadPolicy(path.join(FLEET_IAC_ROOT, 'provision', 'aegis.policy.jsonc'));
-    return Array.isArray(pol.telegramChatIds) ? pol.telegramChatIds.map(String) : [];
-  } catch (e) { return []; }
+  try { const pol = loadPolicyCanonical(); return Array.isArray(pol.telegramChatIds) ? pol.telegramChatIds.map(String) : []; }
+  catch (e) { return []; }
 }
 
 let _mbCache = { v: 2, t: 0 };
@@ -267,8 +268,7 @@ function readMaxBatch() {
   let v = 2;
   try {
     // Canonical loader (handles JSONC trailing comments + defaults) — never reparse policy here.
-    const pol = require(path.join(FLEET_IAC_ROOT, 'provision', 'lib', 'policy.js'))
-      .loadPolicy(path.join(FLEET_IAC_ROOT, 'provision', 'aegis.policy.jsonc'));
+    const pol = loadPolicyCanonical();
     if (Number.isFinite(pol.maxBatch) && pol.maxBatch > 0) v = pol.maxBatch;
   } catch { /* default 2 */ }
   _mbCache = { v, t: Date.now() };
