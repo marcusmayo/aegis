@@ -76,11 +76,11 @@
   .aud-pane{border:1px solid #232323;border-radius:8px;padding:8px;margin-top:8px;background:#0b0b0b}
   .aud-pane h4{margin:0 0 2px;font:700 12px monospace}
   .tool-tab.active{outline:2px solid #fff;outline-offset:-3px}
-  #toolPanel{position:fixed;left:40px;top:64px;z-index:60;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-left:none;border-radius:0 8px 8px 0;max-height:84vh;overflow-y:auto;box-shadow:6px 0 18px rgba(0,0,0,.45)}
+  #toolPanel{position:fixed;left:40px;top:64px;z-index:60;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-left:none;border-radius:0 8px 8px 0;max-height:84vh;overflow-y:auto;box-shadow:6px 0 18px rgba(0,0,0,.45);box-sizing:border-box}
   #toolPanel.open{width:440px;opacity:1;padding:14px}
   /* Right-hand panel: the technical tabs (Advanced, Policy, Audit, Provisioning, Decommission). Same panel
      mechanics mirrored; the operator-facing tabs (Persona, Relay, Migrate, Cheatsheet) stay on the left. */
-  #toolPanelR{position:fixed;right:40px;top:64px;z-index:60;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-right:none;border-radius:8px 0 0 8px;max-height:84vh;overflow-y:auto;box-shadow:-6px 0 18px rgba(0,0,0,.45)}
+  #toolPanelR{position:fixed;right:40px;top:64px;z-index:60;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-right:none;border-radius:8px 0 0 8px;max-height:84vh;overflow-y:auto;box-shadow:-6px 0 18px rgba(0,0,0,.45);box-sizing:border-box}
   #toolPanelR.open{width:520px;opacity:1;padding:14px}
   #toolGripW,#toolRGripW,#toolGripH,#toolRGripH{transition:background .12s}
   .card.dragging{opacity:.45;outline:2px dashed #666;outline-offset:2px}
@@ -554,8 +554,9 @@ function ensurePanelGrips(panel, side){
 function panelWidth(panel, dflt){ if(!panel||!panel.classList.contains('open')) return 0; return parseInt(panel.style.width,10)||dflt; }
 function relayout(){
   const w=document.querySelector('.wrap'); if(!w) return;
+  // 40px rail + panel outer width (border-box, so the width IS the outer width) + 12px gutter, each side.
   const lw=panelWidth(document.getElementById('toolPanel'),440), rw=panelWidth(document.getElementById('toolPanelR'),520);
-  w.style.paddingLeft=(52+lw)+'px'; w.style.paddingRight=(52+rw)+'px';
+  w.style.paddingLeft=(40+lw+12)+'px'; w.style.paddingRight=(40+rw+12)+'px';
 }
 window.addEventListener('resize', relayout);
 function esc(x){ return String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
