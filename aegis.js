@@ -613,6 +613,54 @@ const server = http.createServer(async (req, res) => {
     }
     return sendJson(res, { ok: r.code === 0, out: panelClean(r.out), protectedAgents: next });
   }
+  // Which control plane is this? Two planes exist (hosted primary, workstation break-glass)
+  // and an operator must be able to read which one they are commanding: same panel, same
+  // agents, different ledgers. $AEGIS_PLANE wins, else the host name -- the same rule
+  // fleetctl enroll uses to name a plane's service tokens.
+  if (req.url === '/api/plane' && req.method === 'GET') {
+    const raw = (process.env.AEGIS_PLANE || os.hostname() || 'aegis').toLowerCase();
+    const plane = raw.replace(/[^a-z0-9-]/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'aegis';
+    return sendJson(res, { plane, bind: HOST + ':' + PORT, fleetctl: !!FLEET_IAC_ROOT, cf: cfEnvProblem() ? 'not ready' : 'ok' });
+  }
+  // ---- Migrate: agent -> agent, mediated by THIS plane (fleetctl migrate) ------------
+  // Plan is read-only (fleetctl reads both agents' volumes over run-command; ~1 min).
+  // Execute is typed-phrase attested, streamed, and ledgered twice by design: here (who
+  // commanded it, edge-verified) and in fleetctl's policy-audit ledger (what moved:
+  // blobs, sha256, member counts, the source chain head as cross-anchor).
+  if (req.url === '/api/migrate/plan' && req.method === 'POST') {
+    const b = await readBody(req);
+    const from = String(b.from || '').trim(), to = String(b.to || '').trim();
+    const scope = String(b.scope || '').trim(), blob = String(b.blob || '').trim();
+    if (!NAME_RE.test(from) || !NAME_RE.test(to)) return sendJson(res, { ok: false, out: 'invalid agent name — must match ^[a-z][a-z0-9-]{1,23}$' }, 400);
+    if (from === to) return sendJson(res, { ok: false, out: 'from and to are the same agent' }, 400);
+    if (scope && !/^[a-z0-9,-]{1,120}$/.test(scope)) return sendJson(res, { ok: false, out: 'scope must be a comma list of volume names (a-z, 0-9, -)' }, 400);
+    if (blob && !/^[A-Za-z0-9._-]{1,200}$/.test(blob)) return sendJson(res, { ok: false, out: 'snapshot name fails safe charset' }, 400);
+    const args = ['migrate', from, to]; if (scope) args.push('--scope=' + scope); if (blob) args.push('--blob=' + blob);
+    const r = await runFleetctl(args);
+    audit({ action: 'migrate-plan', from, to, scope: scope || null, blob: blob || null, code: r.code });
+    return sendJson(res, { ok: r.code === 0, code: r.code, out: panelClean(r.out) });
+  }
+  if (req.url === '/api/migrate/go' && req.method === 'POST') {
+    const b = await readBody(req);
+    const from = String(b.from || '').trim(), to = String(b.to || '').trim();
+    const scope = String(b.scope || '').trim(), blob = String(b.blob || '').trim();
+    const attest = String(b.attest || '');
+    if (!NAME_RE.test(from) || !NAME_RE.test(to)) return sendJson(res, { ok: false, out: 'invalid agent name — must match ^[a-z][a-z0-9-]{1,23}$' }, 400);
+    if (from === to) return sendJson(res, { ok: false, out: 'from and to are the same agent' }, 400);
+    if (scope && !/^[a-z0-9,-]{1,120}$/.test(scope)) return sendJson(res, { ok: false, out: 'scope must be a comma list of volume names (a-z, 0-9, -)' }, 400);
+    if (blob && !/^[A-Za-z0-9._-]{1,200}$/.test(blob)) return sendJson(res, { ok: false, out: 'snapshot name fails safe charset' }, 400);
+    const required = 'I approve migrating ' + from + ' to ' + to;
+    const actor = actorOf(req);
+    const base = { action: 'migrate-go', from, to, scope: scope || null, blob: blob || null, actor };
+    if (attest.trim() !== required) {
+      audit({ ...base, phrase: attest, outcome: 'refused: attestation mismatch' });
+      return sendJson(res, { ok: false, out: 'REFUSED — attestation must read exactly:\n  ' + required }, 400);
+    }
+    const args = ['migrate', from, to]; if (scope) args.push('--scope=' + scope); if (blob) args.push('--blob=' + blob);
+    args.push('--go', '--attest', attest.trim());
+    audit({ ...base, phrase: attest, outcome: 'started' });
+    return streamFleetctl(res, args, null, (code) => audit({ ...base, phrase: attest, outcome: code === 0 ? 'done' : 'exit ' + code }));
+  }
   // Decommission plan (READ-ONLY): discover which surfaces an agent still occupies.
   if (req.url === '/api/decommission/plan' && req.method === 'POST') {
     const b = await readBody(req);

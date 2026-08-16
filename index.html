@@ -67,6 +67,7 @@
   .tool-tab.persona{background:#8b5cf6}
   .tool-tab.policy{background:#10b981;color:#052e22}
   .tool-tab.a2a{background:#0ea5e9;color:#04212e}
+  .tool-tab.mig{background:#14b8a6;color:#042f2e}
   .tool-tab.audit{background:#e5e7eb;color:#111}
   .aud-ok{color:#22c55e;font-weight:700}.aud-bad{color:#ef4444;font-weight:700}
   .aud-pane{border:1px solid #232323;border-radius:8px;padding:8px;margin-top:8px;background:#0b0b0b}
@@ -118,7 +119,7 @@
   #log div{white-space:pre-wrap;overflow-wrap:anywhere}
 </style></head><body>
 <header>
-  <h1>&#9678; Aegis</h1><span class="sub">fleet control plane &middot; local</span>
+  <h1>&#9678; Aegis</h1><span class="sub" id="planeSub" title="which control plane you are commanding ($AEGIS_PLANE, else host name)">fleet control plane &middot; &hellip;</span>
   <button onclick="loadFleet()">Refresh fleet</button>
   <span class="fontctl" title="Resize all main-panel text: agent cards/chips, console, prompt, answers">text <button class="fontbtn" onclick="logFont(-1)" title="smaller">A&minus;</button> <button class="fontbtn" onclick="logFont(1)" title="larger">A+</button> <button class="fontbtn" onclick="logFont(0)" title="reset">reset</button></span>
 </header>
@@ -143,6 +144,7 @@
   <button class="tool-tab adv"  onclick="openTool('adv')">&#9998; Advanced</button>
   <button class="tool-tab policy" onclick="openTool('policy')">&#9878; Policy</button>
   <button class="tool-tab a2a" onclick="openTool('a2a')">&#8644; Relay</button>
+  <button class="tool-tab mig" onclick="openTool('mig')">&#8646; Migrate</button>
   <button class="tool-tab prov" onclick="openTool('prov')">&#9881; Provisioning</button>
   <button class="tool-tab dec"  onclick="openTool('dec')">&#9760; Decommission</button>
 </div>
@@ -250,6 +252,28 @@
     <div class="muted" style="font-size:var(--uifs,12px);margin-top:4px" id="a2aHintLine">required: I approve relaying &lt;from&gt; to &lt;to&gt;</div>
     <div style="margin-top:6px"><button onclick="a2aSend()">Attest + Relay</button></div>
     <pre class="planout" id="a2aOut" style="height:170px;max-height:none"><span class="muted">relay result appears here&hellip;</span></pre>
+  </div>
+  <div class="tool-content" id="tc-mig">
+    <h3 style="margin:4px 0 8px;color:#14b8a6">Migrate <span class="muted">&mdash; agent to agent, mediated by this plane</span></h3>
+    <div class="muted" style="font-size:var(--uifs,12px);margin-bottom:8px">A fresh snapshot of the source is copied <b>unchanged</b> into the target&rsquo;s own backup container; the target then extracts only the scoped volumes, with the profile prefix translated, using its own identity. Neither agent ever reads the other&rsquo;s store. Same profile: everything but logs. Cross profile: <b>knowledge</b> by default, <b>claude</b> (transcripts + session pointers) opt-in, state and logs never. Chains never move &mdash; the ledger carries the source chain&rsquo;s head as the cross-anchor.</div>
+    <div class="tool-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <select id="migFrom" onchange="migHint()"></select>
+      <span class="muted">&rarr;</span>
+      <select id="migTo" onchange="migHint()"></select>
+      <button onclick="migLoad()">Refresh agents</button>
+    </div>
+    <div class="tool-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <span class="muted">scope</span><input id="migScope" placeholder="blank = default for the profile pair, or e.g. knowledge,claude" style="flex:1;min-width:200px">
+    </div>
+    <div class="tool-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <span class="muted">snapshot</span><input id="migBlob" placeholder="blank = fresh snapshot now, or an existing snapshot name" style="flex:1;min-width:200px">
+      <button class="send" onclick="migratePlan()">Plan (read-only)</button>
+    </div>
+    <pre class="planout" id="migOut"><span class="muted">plan appears here &mdash; it reads both agents&rsquo; volumes over run-command, allow a minute&hellip;</span></pre>
+    <div class="muted" style="font-size:11px;margin:8px 0 4px">To EXECUTE: type the attestation sentence below, then Execute. This plane runs the migration &mdash; no CLI; every attempt &mdash; approved or refused &mdash; is ledgered here and in fleetctl&rsquo;s ledger.</div>
+    <input id="migAttest" class="attest" placeholder="I approve migrating <from> to <to>" oninput="migAttestCheck()">
+    <div class="muted" style="font-size:var(--uifs,12px);margin-top:4px" id="migHintLine">type exactly: I approve migrating &lt;from&gt; to &lt;to&gt;</div>
+    <div style="margin-top:6px"><button id="migExec" class="send" style="background:#14b8a6;color:#042f2e" onclick="migrateGo()" disabled>Execute migration (--go)</button></div>
   </div>
   <div class="tool-content" id="tc-policy">
     <h3 style="margin:4px 0 8px">Policy &middot; attested governance gate</h3>
@@ -740,6 +764,7 @@ function openTool(name){
   if(name==='persona') personaLoad();
   if(name==='policy') policyLoad();
   if(name==='a2a') a2aLoad();
+  if(name==='mig') migLoad();
 }
 
 // Advanced API console: a curated dropdown of the agent's real endpoints, each with a
@@ -1190,6 +1215,66 @@ async function provisionGo(){
   await streamPost('/api/provision/go', { name, attest }, id, null);
   bumpActive(); setTimeout(loadFleet, 800);
 }
+// ---- Migrate pane: mirrors Relay (from/to) + Decommission (plan, tri-state attestation, streamed --go)
+function migLoad(){
+  const names=(typeof AGENTS!=='undefined'&&AGENTS?AGENTS:[]).map(a=>a.name);
+  for(const id of ['migFrom','migTo']){
+    const el=document.getElementById(id); if(!el) continue;
+    const keep=el.value;
+    el.innerHTML=names.map(n=>'<option>'+n+'</option>').join('');
+    el.value=(keep&&names.includes(keep))?keep:(names[0]||'');
+  }
+  const f=document.getElementById('migFrom'), t=document.getElementById('migTo');
+  if(names.length>1&&t.value===f.value) t.value=names.find(n=>n!==f.value);
+  migHint();
+}
+function migHint(){ migAttestCheck(); }
+function migAttestCheck(){
+  const f=($('#migFrom').value||'').trim(), t=($('#migTo').value||'').trim();
+  const req='I approve migrating '+(f||'<from>')+' to '+(t||'<to>');
+  const typed=($('#migAttest').value||'').trim();
+  const h=$('#migHintLine');
+  if(f&&t&&f===t){ $('#migExec').disabled=true; h.style.color='#ef4444'; h.textContent='pick two different agents'; return; }
+  const ok=!!f&&!!t&&typed===req;
+  $('#migExec').disabled=!ok;
+  if(ok){ h.style.color='#22c55e'; h.textContent='\u2713 phrase matches \u2014 Execute enabled'; }
+  else if(typed){ h.style.color='#ef4444'; h.textContent='MISMATCH \u2014 type exactly: '+req; }
+  else { h.style.color=''; h.textContent='type exactly: '+req; }
+}
+async function migratePlan(){
+  const from=$('#migFrom').value, to=$('#migTo').value, scope=$('#migScope').value.trim(), blob=$('#migBlob').value.trim();
+  const out=$('#migOut');
+  if(!from||!to||from===to){ out.textContent='pick two different agents'; return; }
+  out.textContent='planning\u2026 (reads both agents\u2019 volumes over run-command; allow a minute)\n';
+  try{
+    const r=await fetch('/api/migrate/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from,to,scope,blob})});
+    const j=await r.json(); out.textContent=(j.out||j.error||('HTTP '+r.status));
+  }catch(e){ out.textContent='request failed: '+e.message; }
+}
+async function migrateGo(){
+  const from=$('#migFrom').value, to=$('#migTo').value, scope=$('#migScope').value.trim(), blob=$('#migBlob').value.trim();
+  const attest=$('#migAttest').value.trim();
+  const required='I approve migrating '+from+' to '+to;
+  const out=$('#migOut'); const btn=$('#migExec');
+  if(attest!==required){ out.textContent='type exactly:  '+required; return; }
+  btn.disabled=true;
+  out.textContent='migrating\u2026 (snapshot, copy, translated extract on the target; a few minutes)\n\n';
+  try{
+    const r=await fetch('/api/migrate/go',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from,to,scope,blob,attest})});
+    const ct=r.headers.get('content-type')||'';
+    if(!r.ok&&ct.includes('json')){ const j=await r.json(); out.textContent=j.out||j.error||('HTTP '+r.status); }
+    else{
+      const reader=r.body.getReader(); const dec=new TextDecoder(); out.textContent='';
+      while(true){ const {done,value}=await reader.read(); if(done) break; out.textContent+=dec.decode(value,{stream:true}); out.scrollTop=out.scrollHeight; }
+    }
+  }catch(e){ out.textContent+='\nrequest failed: '+e.message; }
+  finally{ $('#migAttest').value=''; migAttestCheck(); if(typeof auditPoke==='function') auditPoke(); setTimeout(loadFleet,600); }
+}
+// Which plane am I on? Two planes exist; the header must say which one is being commanded.
+async function loadPlane(){
+  try{ const j=await (await fetch('/api/plane')).json(); const el=$('#planeSub'); if(el&&j.plane){ el.textContent='fleet control plane \u00b7 '+j.plane; document.title='Aegis \u00b7 '+j.plane; } }
+  catch(e){ /* header keeps its placeholder; nothing else depends on it */ }
+}
 function decommissionPlan(){
   const name = $('#dcName').value.trim();
   if(!name){ $('#decOut').textContent = 'enter an agent name'; return; }
@@ -1263,5 +1348,6 @@ setInterval(syncWeb, 8000);
 
 loadFleet();
 advInit();
+loadPlane();
 </script>
 </body></html>
