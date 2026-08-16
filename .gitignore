@@ -6,3 +6,5 @@ aegis.config.json
 
 *.bak
 aegis-audit.jsonl
+telegram-state.json
+ledger-backups/

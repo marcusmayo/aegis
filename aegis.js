@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const { WebSocketServer, WebSocket } = require('ws');
 const cfcred = require('./cfcred.js');
+const telegram = require('./telegram.js');
 
 const PORT = parseInt(process.env.AEGIS_PORT || '7070', 10);
 const HOST = process.env.AEGIS_BIND || '127.0.0.1';
@@ -248,6 +249,15 @@ function readA2aPairs() {
     const pol = require(path.join(FLEET_IAC_ROOT, 'provision', 'lib', 'policy.js'))
       .loadPolicy(path.join(FLEET_IAC_ROOT, 'provision', 'aegis.policy.jsonc'));
     return Array.isArray(pol.a2aPairs) ? pol.a2aPairs.map(String) : [];
+  } catch (e) { return []; }
+}
+
+// Telegram allowlist, same loader, same fail-closed shape: unreadable => nobody.
+function readTelegramChatIds() {
+  try {
+    const pol = require(path.join(FLEET_IAC_ROOT, 'provision', 'lib', 'policy.js'))
+      .loadPolicy(path.join(FLEET_IAC_ROOT, 'provision', 'aegis.policy.jsonc'));
+    return Array.isArray(pol.telegramChatIds) ? pol.telegramChatIds.map(String) : [];
   } catch (e) { return []; }
 }
 
@@ -628,7 +638,7 @@ const server = http.createServer(async (req, res) => {
   // agents, different ledgers. $AEGIS_PLANE wins, else the host name -- the same rule
   // fleetctl enroll uses to name a plane's service tokens.
   if (req.url === '/api/plane' && req.method === 'GET') {
-    return sendJson(res, { plane: planeName(), bind: HOST + ':' + PORT, fleetctl: !!FLEET_IAC_ROOT, cf: cfEnvProblem() ? 'not ready' : 'ok' });
+    return sendJson(res, { plane: planeName(), bind: HOST + ':' + PORT, fleetctl: !!FLEET_IAC_ROOT, cf: cfEnvProblem() ? 'not ready' : 'ok', telegram: telegram.state.on ? 'on' : ('off' + (telegram.state.reason ? ' (' + telegram.state.reason + ')' : '')) });
   }
   // ---- Enroll: adopt an already-provisioned agent into THIS plane with its own token
   // (fleetctl enroll). The plane label is pinned on the argv so the token name and the
@@ -751,9 +761,44 @@ server.on('upgrade', (req, socket, head) => {
   wss.handleUpgrade(req, socket, head, (browserWs) => relay(browserWs, agent, actor));
 });
 
+// ONE path to an agent for every door into the plane. Opens a fresh WS to the agent with
+// the plane's service token, sends the prompt, streams frames to onFrame, calls onDone once
+// (on 'done', close, or error). opts.onBehalfOf rides as X-Aegis-On-Behalf-Of -- the plane's
+// ASSERTION of who asked (never merged with the verified caller, which is the plane's token).
+// Returns the socket so a caller that owns a browser connection can close it early.
+function sendToAgent(agent, prompt, onFrame, onDone, opts) {
+  const o = opts || {};
+  let done = false; const finish = () => { if (!done) { done = true; try { onDone && onDone(); } catch { /* ignore */ } } };
+  const headers = { 'CF-Access-Client-Id': agent.clientId, 'CF-Access-Client-Secret': agent.clientSecret };
+  if (o.onBehalfOf && o.onBehalfOf.src && o.onBehalfOf.id) {
+    const clean = (v) => String(v).replace(/[^\x21-\x7e]/g, '').slice(0, 200);
+    headers['X-Aegis-On-Behalf-Of'] = clean(o.onBehalfOf.src) + ':' + clean(o.onBehalfOf.id);
+  }
+  const agentWs = new WebSocket('wss://' + agent.host + '/', { headers, handshakeTimeout: 10000 });
+  agentWs.on('open', () => {
+    const out = { prompt };
+    if (o.tier) out.tier = o.tier;
+    agentWs.send(JSON.stringify(out));
+  });
+  agentWs.on('message', (data) => {
+    let frame; try { frame = JSON.parse(data); } catch { frame = { type: 'token', text: String(data) }; }
+    try { onFrame(frame); } catch { /* ignore */ }
+    if (frame.type === 'done') { try { agentWs.close(); } catch {} finish(); }
+  });
+  agentWs.on('error', (e) => {
+    const m = String(e.message || '');
+    let hint = '';
+    if (/530/.test(m)) hint = ` — ${agent.name} unreachable: tunnel down (VM deallocated?). Start it: az vm start -g rg-${agent.name} -n ${agent.name}-vm`;
+    else if (/502/.test(m)) hint = ` — ${agent.name} tunnel is up but nothing listens yet (agent starting or containers down)`;
+    try { onFrame({ type: 'error', text: 'agent connect: ' + m + hint }); onFrame({ type: 'done' }); } catch { /* ignore */ }
+    finish();
+  });
+  agentWs.on('close', () => finish());
+  return agentWs;
+}
+
 function relay(browserWs, agent, actor) {
   let agentWs = null;
-  let closed = false;
   const tell = (obj) => { if (browserWs.readyState === WebSocket.OPEN) browserWs.send(JSON.stringify({ agent: agent.name, ...obj })); };
 
   browserWs.on('message', (raw) => {
@@ -765,38 +810,28 @@ function relay(browserWs, agent, actor) {
             promptSha256: crypto.createHash('sha256').update(prompt).digest('hex'),
             promptLen: prompt.length, status: 'sent' });
 
-    // open a fresh agent WS per command (agents stream one response then we close)
-    agentWs = new WebSocket('wss://' + agent.host + '/', {
-      headers: { 'CF-Access-Client-Id': agent.clientId, 'CF-Access-Client-Secret': agent.clientSecret },
-      handshakeTimeout: 10000,
-    });
-    agentWs.on('open', () => {
-      const out = { prompt };
-      if (msg.tier) out.tier = msg.tier;
-      agentWs.send(JSON.stringify(out));
-    });
-    agentWs.on('message', (data) => {
-      // pass agent frames straight through, tagged with the agent name
-      let frame; try { frame = JSON.parse(data); } catch { frame = { type: 'token', text: String(data) }; }
-      tell(frame);
-      if (frame.type === 'done' && agentWs) { try { agentWs.close(); } catch {} }
-    });
-    agentWs.on('error', (e) => {
-      const m = String(e.message || '');
-      let hint = '';
-      if (/530/.test(m)) hint = ` — ${agent.name} unreachable: tunnel down (VM deallocated?). Start it: az vm start -g rg-${agent.name} -n ${agent.name}-vm`;
-      else if (/502/.test(m)) hint = ` — ${agent.name} tunnel is up but nothing listens yet (agent starting or containers down)`;
-      tell({ type: 'error', text: 'agent connect: ' + m + hint }); tell({ type: 'done' });
-    });
-    agentWs.on('close', () => { /* command complete; browser stays open for next send */ });
+    // one agent WS per command (agents stream one response then we close); the browser's
+    // edge-verified identity rides as the plane's assertion, exactly as Telegram's chat id does
+    agentWs = sendToAgent(agent, prompt, tell, () => { /* command complete; browser stays open for next send */ }, { tier: msg.tier, onBehalfOf: actor && actor.src !== 'unknown' ? actor : null });
   });
 
-  browserWs.on('close', () => { closed = true; if (agentWs) { try { agentWs.close(); } catch {} } });
+  browserWs.on('close', () => { if (agentWs) { try { agentWs.close(); } catch {} } });
   browserWs.on('error', () => { if (agentWs) { try { agentWs.close(); } catch {} } });
 }
 
 let bootCfg = {};
 try { bootCfg = JSON.parse(fs.readFileSync(CFG, 'utf8')); } catch { /* loadAgents already warned */ }
 cfcred.resolve(bootCfg, () =>
-  server.listen(PORT, HOST, () =>
-    console.log(`Aegis on http://${HOST}:${PORT}  agents: ${loadAgents().map(a => a.name).join(', ') || '(none - fill aegis.config.json)'}  \u00b7  fleetctl: ${FLEET_IAC_ROOT || 'MISSING (set FLEET_IAC_ROOT or aegis.config.json fleetIacRoot)'}  \u00b7  cf: ${cfEnvProblem() ? 'NOT READY (' + cfEnvProblem() + ')' : 'ok \u00b7 token: ' + cfcred.state.source}`)));
+  server.listen(PORT, HOST, () => {
+    console.log(`Aegis on http://${HOST}:${PORT}  agents: ${loadAgents().map(a => a.name).join(', ') || '(none - fill aegis.config.json)'}  \u00b7  fleetctl: ${FLEET_IAC_ROOT || 'MISSING (set FLEET_IAC_ROOT or aegis.config.json fleetIacRoot)'}  \u00b7  cf: ${cfEnvProblem() ? 'NOT READY (' + cfEnvProblem() + ')' : 'ok \u00b7 token: ' + cfcred.state.source}`);
+    // Telegram door: read + chat only, allowlist from policy, off unless a bot token resolves.
+    // Started AFTER the plane listens, and only when FLEET_IAC_ROOT is known (the allowlist
+    // is policy); a plane without policy has no allowlist, so it has no Telegram either.
+    if (FLEET_IAC_ROOT) {
+      telegram.start({
+        cfg: bootCfg, loadAgents, agentByName, readChatIds: readTelegramChatIds, sendToAgent, callAgent, audit, planeName,
+        stateFile: path.join(__dirname, 'telegram-state.json'),
+        log: (...a) => console.log('telegram:', ...a),
+      });
+    } else console.log('telegram: off (FLEET_IAC_ROOT unset — no policy, no allowlist)');
+  }));

@@ -203,14 +203,21 @@
       <button onclick="migLoad()">Refresh agents</button>
     </div>
     <div class="tool-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-      <span class="muted">scope</span><input id="migScope" placeholder="blank = default for the profile pair, or e.g. knowledge,claude" style="flex:1;min-width:200px">
-    </div>
-    <div class="tool-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-      <span class="muted">snapshot</span><input id="migBlob" placeholder="blank = fresh snapshot now, or an existing snapshot name" style="flex:1;min-width:200px">
       <button class="send" onclick="migratePlan()">Plan (read-only)</button>
+      <button onclick="const o=document.getElementById('migOpts'); o.style.display=o.style.display==='none'?'block':'none'; this.textContent=o.style.display==='none'?'Options &#9656;':'Options &#9662;'">Options &#9656;</button>
+      <span class="muted" style="font-size:11px">defaults: whole profile-appropriate scope, fresh snapshot, add only</span>
     </div>
-    <div class="tool-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-      <label class="muted" style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="migOverwrite" onchange="migAttestCheck()" style="max-width:none;width:auto"> overwrite files the target already has <span class="muted">(default: add only &mdash; existing files are kept and reported; overwrite is a different sentence)</span></label>
+    <div id="migOpts" style="display:none;border:1px solid #232323;border-radius:6px;padding:8px;margin:4px 0">
+      <div class="muted" style="font-size:11px;margin-bottom:6px">Optional overrides. Leave blank for the defaults the plan shows.</div>
+      <div class="tool-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <span class="muted">scope</span><input id="migScope" placeholder="which volumes move: blank = default for the profile pair (the plan lists what is allowed), or e.g. knowledge,claude" style="flex:1;min-width:280px;max-width:none">
+      </div>
+      <div class="tool-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <span class="muted">snapshot</span><input id="migBlob" placeholder="which snapshot: blank = take a fresh one now, or an older snapshot name from the source's backups (a point in time)" style="flex:1;min-width:280px;max-width:none">
+      </div>
+      <div class="tool-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <label class="muted" style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="migOverwrite" onchange="migAttestCheck()" style="max-width:none;width:auto"> overwrite files the target already has <span class="muted">(default: add only &mdash; existing files are kept and reported; overwrite is a different sentence)</span></label>
+      </div>
     </div>
     <pre class="planout" id="migOut"><span class="muted">plan appears here &mdash; it reads both agents&rsquo; volumes over run-command, allow a minute&hellip;</span></pre>
     <div class="muted" style="font-size:11px;margin:8px 0 4px">To EXECUTE: type the attestation sentence below, then Execute. This plane runs the migration &mdash; no CLI; every attempt &mdash; approved or refused &mdash; is ledgered here and in fleetctl&rsquo;s ledger.</div>
@@ -241,8 +248,8 @@
     <button onclick="policyLoad()">Refresh policy + attestations</button>
     <pre class="planout" id="policyOut"><span class="muted">policy appears here&hellip;</span></pre>
     <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-      <select id="polKey" onchange="polHint()"><option>maxFleet</option><option>maxBatch</option><option>budget</option><option>allowedRegions</option><option>defaultRegion</option><option>budgetName</option><option>protectedAgents</option><option>a2aPairs</option></select>
-      <input id="polVal" class="wide" placeholder="value (e.g. 6 for maxFleet, or from&gt;to,to&gt;from for a2aPairs)" oninput="polHint()">
+      <select id="polKey" onchange="polHint()"><option>maxFleet</option><option>maxBatch</option><option>budget</option><option>allowedRegions</option><option>defaultRegion</option><option>budgetName</option><option>protectedAgents</option><option>a2aPairs</option><option>telegramChatIds</option></select>
+      <input id="polVal" class="wide" placeholder="value (e.g. 6 for maxFleet; from&gt;to,to&gt;from for a2aPairs; numeric chat ids for telegramChatIds; none to clear a list)" oninput="polHint()">
     </div>
     <input id="polAttest" class="attest" placeholder="type the attestation sentence in full">
     <div class="muted" style="font-size:var(--uifs,12px);margin-top:4px" id="polHintLine">required: I approve setting maxFleet to &lt;n&gt;</div>
