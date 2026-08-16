@@ -635,9 +635,10 @@ const server = http.createServer(async (req, res) => {
     if (from === to) return sendJson(res, { ok: false, out: 'from and to are the same agent' }, 400);
     if (scope && !/^[a-z0-9,-]{1,120}$/.test(scope)) return sendJson(res, { ok: false, out: 'scope must be a comma list of volume names (a-z, 0-9, -)' }, 400);
     if (blob && !/^[A-Za-z0-9._-]{1,200}$/.test(blob)) return sendJson(res, { ok: false, out: 'snapshot name fails safe charset' }, 400);
-    const args = ['migrate', from, to]; if (scope) args.push('--scope=' + scope); if (blob) args.push('--blob=' + blob);
+    const overwrite = b.overwrite === true;
+    const args = ['migrate', from, to]; if (scope) args.push('--scope=' + scope); if (blob) args.push('--blob=' + blob); if (overwrite) args.push('--overwrite');
     const r = await runFleetctl(args);
-    audit({ action: 'migrate-plan', from, to, scope: scope || null, blob: blob || null, code: r.code });
+    audit({ action: 'migrate-plan', from, to, scope: scope || null, blob: blob || null, mode: overwrite ? 'overwrite' : 'add-only', code: r.code });
     return sendJson(res, { ok: r.code === 0, code: r.code, out: panelClean(r.out) });
   }
   if (req.url === '/api/migrate/go' && req.method === 'POST') {
@@ -649,14 +650,16 @@ const server = http.createServer(async (req, res) => {
     if (from === to) return sendJson(res, { ok: false, out: 'from and to are the same agent' }, 400);
     if (scope && !/^[a-z0-9,-]{1,120}$/.test(scope)) return sendJson(res, { ok: false, out: 'scope must be a comma list of volume names (a-z, 0-9, -)' }, 400);
     if (blob && !/^[A-Za-z0-9._-]{1,200}$/.test(blob)) return sendJson(res, { ok: false, out: 'snapshot name fails safe charset' }, 400);
-    const required = 'I approve migrating ' + from + ' to ' + to;
+    // Add-only and overwrite are different acts with different sentences (see fleetctl migrate).
+    const overwrite = b.overwrite === true;
+    const required = 'I approve migrating ' + from + ' to ' + to + (overwrite ? ' overwriting existing files' : '');
     const actor = actorOf(req);
-    const base = { action: 'migrate-go', from, to, scope: scope || null, blob: blob || null, actor };
+    const base = { action: 'migrate-go', from, to, scope: scope || null, blob: blob || null, mode: overwrite ? 'overwrite' : 'add-only', actor };
     if (attest.trim() !== required) {
       audit({ ...base, phrase: attest, outcome: 'refused: attestation mismatch' });
       return sendJson(res, { ok: false, out: 'REFUSED — attestation must read exactly:\n  ' + required }, 400);
     }
-    const args = ['migrate', from, to]; if (scope) args.push('--scope=' + scope); if (blob) args.push('--blob=' + blob);
+    const args = ['migrate', from, to]; if (scope) args.push('--scope=' + scope); if (blob) args.push('--blob=' + blob); if (overwrite) args.push('--overwrite');
     args.push('--go', '--attest', attest.trim());
     audit({ ...base, phrase: attest, outcome: 'started' });
     return streamFleetctl(res, args, null, (code) => audit({ ...base, phrase: attest, outcome: code === 0 ? 'done' : 'exit ' + code }));

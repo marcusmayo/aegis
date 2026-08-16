@@ -208,6 +208,9 @@
       <span class="muted">snapshot</span><input id="migBlob" placeholder="blank = fresh snapshot now, or an existing snapshot name" style="flex:1;min-width:200px">
       <button class="send" onclick="migratePlan()">Plan (read-only)</button>
     </div>
+    <div class="tool-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <label class="muted" style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="migOverwrite" onchange="migAttestCheck()" style="max-width:none;width:auto"> overwrite files the target already has <span class="muted">(default: add only &mdash; existing files are kept and reported; overwrite is a different sentence)</span></label>
+    </div>
     <pre class="planout" id="migOut"><span class="muted">plan appears here &mdash; it reads both agents&rsquo; volumes over run-command, allow a minute&hellip;</span></pre>
     <div class="muted" style="font-size:11px;margin:8px 0 4px">To EXECUTE: type the attestation sentence below, then Execute. This plane runs the migration &mdash; no CLI; every attempt &mdash; approved or refused &mdash; is ledgered here and in fleetctl&rsquo;s ledger.</div>
     <input id="migAttest" class="attest" placeholder="I approve migrating <from> to <to>" oninput="migAttestCheck()">
@@ -548,17 +551,26 @@ function ensurePanelGrips(panel, side){
     panel.appendChild(g);
   }
 }
-// PUSH, not overlay: an open panel widens the main area's padding on its side by its own
-// width, so the fleet cards, controls and answer panes reflow beside it instead of underneath.
-// Widths come from the panel's intended style (not a mid-transition measurement).
+// PUSH, not overlay: an open panel widens the main area's padding on its side so the fleet
+// cards, controls and answer panes reflow beside it instead of underneath. The edge is
+// MEASURED from the rendered panel (rail + panel + scrollbar, whatever the browser did) and a
+// 12px gutter added; the intended width is only the pre-transition estimate. Re-measured when
+// the open/close transition finishes and on window resize, so it is exact on both sides.
 function panelWidth(panel, dflt){ if(!panel||!panel.classList.contains('open')) return 0; return parseInt(panel.style.width,10)||dflt; }
 function relayout(){
   const w=document.querySelector('.wrap'); if(!w) return;
-  // 40px rail + panel outer width (border-box, so the width IS the outer width) + 12px gutter, each side.
-  const lw=panelWidth(document.getElementById('toolPanel'),440), rw=panelWidth(document.getElementById('toolPanelR'),520);
-  w.style.paddingLeft=(40+lw+12)+'px'; w.style.paddingRight=(40+rw+12)+'px';
+  const vw=document.documentElement.clientWidth||window.innerWidth;
+  const L=document.getElementById('toolPanel'), R=document.getElementById('toolPanelR');
+  let left=40, right=40;
+  // A rect is only trusted once the panel has a rendered width (mid-transition it is still
+  // narrow, and an unlaid-out element reports zeros); until then the intended width stands in.
+  if(L&&L.classList.contains('open')){ const r=L.getBoundingClientRect(); left=Math.max(40+panelWidth(L,440), r.width>0?Math.round(r.right):0); }
+  if(R&&R.classList.contains('open')){ const r=R.getBoundingClientRect(); right=Math.max(40+panelWidth(R,520), r.width>0?Math.round(vw-r.left):0); }
+  w.style.paddingLeft=(left+12)+'px'; w.style.paddingRight=(right+12)+'px';
 }
 window.addEventListener('resize', relayout);
+for(const id of ['toolPanel','toolPanelR']){ const p=document.getElementById(id); if(p) p.addEventListener('transitionend', relayout); }
+setTimeout(relayout, 300);
 function esc(x){ return String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 async function buildCheats(){
   const b=document.getElementById('cheatBody'); if(!b)return;
@@ -1206,9 +1218,10 @@ function migLoad(){
   migHint();
 }
 function migHint(){ migAttestCheck(); }
+function migSentence(f,t){ const ow=$('#migOverwrite')&&$('#migOverwrite').checked; return 'I approve migrating '+(f||'<from>')+' to '+(t||'<to>')+(ow?' overwriting existing files':''); }
 function migAttestCheck(){
   const f=($('#migFrom').value||'').trim(), t=($('#migTo').value||'').trim();
-  const req='I approve migrating '+(f||'<from>')+' to '+(t||'<to>');
+  const req=migSentence(f,t);
   const typed=($('#migAttest').value||'').trim();
   const h=$('#migHintLine');
   if(f&&t&&f===t){ $('#migExec').disabled=true; h.style.color='#ef4444'; h.textContent='pick two different agents'; return; }
@@ -1220,24 +1233,26 @@ function migAttestCheck(){
 }
 async function migratePlan(){
   const from=$('#migFrom').value, to=$('#migTo').value, scope=$('#migScope').value.trim(), blob=$('#migBlob').value.trim();
+  const overwrite=!!($('#migOverwrite')&&$('#migOverwrite').checked);
   const out=$('#migOut');
   if(!from||!to||from===to){ out.textContent='pick two different agents'; return; }
   out.textContent='planning\u2026 (reads both agents\u2019 volumes over run-command; allow a minute)\n';
   try{
-    const r=await fetch('/api/migrate/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from,to,scope,blob})});
+    const r=await fetch('/api/migrate/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from,to,scope,blob,overwrite})});
     const j=await r.json(); out.textContent=(j.out||j.error||('HTTP '+r.status));
   }catch(e){ out.textContent='request failed: '+e.message; }
 }
 async function migrateGo(){
   const from=$('#migFrom').value, to=$('#migTo').value, scope=$('#migScope').value.trim(), blob=$('#migBlob').value.trim();
+  const overwrite=!!($('#migOverwrite')&&$('#migOverwrite').checked);
   const attest=$('#migAttest').value.trim();
-  const required='I approve migrating '+from+' to '+to;
+  const required=migSentence(from,to);
   const out=$('#migOut'); const btn=$('#migExec');
   if(attest!==required){ out.textContent='type exactly:  '+required; return; }
   btn.disabled=true;
   out.textContent='migrating\u2026 (snapshot, copy, translated extract on the target; a few minutes)\n\n';
   try{
-    const r=await fetch('/api/migrate/go',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from,to,scope,blob,attest})});
+    const r=await fetch('/api/migrate/go',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from,to,scope,blob,overwrite,attest})});
     const ct=r.headers.get('content-type')||'';
     if(!r.ok&&ct.includes('json')){ const j=await r.json(); out.textContent=j.out||j.error||('HTTP '+r.status); }
     else{
