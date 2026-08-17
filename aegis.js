@@ -707,6 +707,17 @@ const server = http.createServer(async (req, res) => {
   // and an operator must be able to read which one they are commanding: same panel, same
   // agents, different ledgers. $AEGIS_PLANE wins, else the host name -- the same rule
   // fleetctl enroll uses to name a plane's service tokens.
+  // ---- Discovery: what Azure holds against THIS plane's registry (fleetctl discover --json).
+  // Read-only. Two planes, two registries, one Azure: an agent provisioned elsewhere shows up
+  // here as unenrolled (an Enroll away), a registry entry whose RG is gone shows up as gone (a
+  // registry-only Decommission away). The panel offers the door; the attested lanes stay the door.
+  if (req.url === '/api/fleet/discover' && req.method === 'GET') {
+    const r = await runFleetctl(['discover', '--json', '--plane=' + planeName()]);
+    let j = null;
+    try { const lines = String(r.out || '').trim().split('\n'); j = JSON.parse(lines[lines.length - 1]); } catch { j = null; }
+    if (!j) return sendJson(res, { ok: false, out: panelClean(r.out || 'discover produced no JSON') }, 502);
+    return sendJson(res, { ok: r.code === 0, ...j });
+  }
   if (req.url === '/api/plane' && req.method === 'GET') {
     const ts = telegram.state;
     return sendJson(res, { plane: planeName(), bind: HOST + ':' + PORT, fleetctl: !!FLEET_IAC_ROOT, cf: cfEnvProblem() ? 'not ready' : 'ok',

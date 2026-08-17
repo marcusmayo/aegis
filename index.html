@@ -135,6 +135,7 @@
   <section>
     <h2 class="sect-h" onclick="toggleFleetMini()" title="Collapse/expand agent cards (chips stay clickable to set the target)">Fleet <span class="caret" id="fleetCaret">&#9662;</span></h2>
     <div class="fleet" id="fleet"><span class="muted">loading&hellip;</span></div>
+    <div id="discovery" class="muted" style="display:none;margin-top:10px;font-size:var(--uifs,12px);line-height:1.6"></div>
   </section>
   <section class="console">
     <h2 class="sect-h" onclick="toggleChrome()" title="Collapse/expand the target + color + text-size controls (agent chips above still set the target)">Target-locked console <span class="caret" id="chromeCaret">&#9662;</span><span id="chromeTarget">&middot; target: <select id="targetMini" class="mini-target" onclick="event.stopPropagation()" title="Switch the console target (works while this panel is collapsed)"></select> <a class="mini-host" id="targetHost" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Open the selected agent's webchat (Cloudflare Access login)"></a></span></h2>
@@ -440,7 +441,29 @@ async function loadFleet(){
   }
   wireCardDrag();
   highlightCard($('#target').value);
+  fleetDiscover();
 }
+
+// Discovery: what Azure holds against this plane's registry (GET /api/fleet/discover -> fleetctl
+// discover --json). Renders nothing when the two agree; otherwise names each drift and offers the
+// door -- Enroll for an agent another plane provisioned, Decommission (registry-only) for a card
+// whose RG is gone. Navigation only: the attested lanes stay where they are.
+async function fleetDiscover(){
+  const el=$('#discovery'); if(!el) return;
+  let j=null; try{ j=await (await fetch('/api/fleet/discover')).json(); }catch(e){ j=null; }
+  if(!j){ el.style.display='none'; return; }
+  const parts=[];
+  if(!j.azureOk){ parts.push('<span style="color:#f87171">discovery: Azure unreadable'+(j.azureReason?' &mdash; '+esc(j.azureReason):'')+'</span>'); }
+  else{
+    for(const a of (j.unenrolled||[])) parts.push('<span style="color:#fbbf24">in Azure, not in this registry:</span> <b>'+esc(a.name)+'</b> ('+esc(a.profile||'?')+(a.region?', '+esc(a.region):'')+') &nbsp;<a href="#" onclick="discoverEnroll(\''+esc(a.name)+'\');return false">Enroll here &rarr;</a>');
+    for(const a of (j.gone||[])) parts.push('<span style="color:#fbbf24">in this registry, no RG in Azure:</span> <b>'+esc(a.name)+'</b>'+(a.profile?' ('+esc(a.profile)+')':'')+' &nbsp;<a href="#" onclick="discoverDecommission(\''+esc(a.name)+'\');return false">Decommission (registry-only) &rarr;</a>');
+  }
+  if(!parts.length){ el.style.display='none'; el.innerHTML=''; return; }
+  el.innerHTML='<span class="muted">discovery &middot; plane '+esc(j.plane||'?')+':</span> '+parts.join('<br>');
+  el.style.display='block';
+}
+function discoverEnroll(name){ openTool('prov'); const i=$('#enName'); if(i){ i.value=name; if(typeof enAttestCheck==='function') enAttestCheck(); i.scrollIntoView({block:'center'}); i.focus(); } }
+function discoverDecommission(name){ openTool('dec'); const i=$('#dcName'); if(i){ i.value=name; if(typeof dcAttestCheck==='function') dcAttestCheck(); i.scrollIntoView({block:'center'}); i.focus(); } }
 
 // Drag a card to reposition it; the order persists (localStorage) and is re-applied
 // on every fleet refresh. Click-to-select is untouched (click fires only when no drag).
