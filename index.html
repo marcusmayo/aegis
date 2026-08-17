@@ -262,6 +262,7 @@
     <h3 style="margin:4px 0 8px">Audit &middot; hash-chained ledgers</h3>
     <div class="muted" style="font-size:var(--uifs,12px);margin-bottom:8px">Two independent chains, shown separately on purpose. The control plane records what was <b>commanded</b>; each agent records what it <b>did</b>. Neither can rewrite the other &mdash; so there is no single merged history to show, and a merged view would imply one.</div>
     <button onclick="auditLoad()">Refresh</button>
+    <button onclick="window.open('/api/audit/export','_blank')" title="One self-contained page with all three ledgers, each with its own verification result, never merged - print it or save as PDF from the browser">Export printable report</button>
     <div class="aud-pane">
       <h4 style="color:#e5e7eb">Control plane &middot; aegis-audit.jsonl</h4>
       <div class="muted" style="font-size:11px" id="audAegisChain">chain: &mdash;</div>
