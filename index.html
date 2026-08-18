@@ -97,6 +97,7 @@
   .tool-content{display:none}
   .tool-content.show{display:block}
   .tool-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0}
+  #toolPanel button,#toolPanelR button{font-size:var(--uifs,12px)}
   #toolPanel select,#toolPanel input,#toolPanel textarea,#toolPanelR select,#toolPanelR input,#toolPanelR textarea{background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:6px;padding:6px 9px;font-family:monospace;font-size:var(--uifs,12px)}
   #toolPanel input,#toolPanelR input{max-width:150px}
   /* Attestation fields exist to be READ while typed -- the 150px panel cap turned the
@@ -164,7 +165,7 @@
 <div id="toolPanel">
   <div class="tool-content" id="tc-persona">
     <h3 style="color:#a78bfa">Persona <span class="muted">&mdash; <b id="personaTarget">&mdash;</b></span></h3>
-    <div class="muted" style="font-size:11px;margin-bottom:6px">Edit this agent's identity &amp; characteristics (business-like, analytical, humor&hellip;). Applies from the next message &mdash; no rebuild. Empty &amp; Save resets to the built-in default.</div>
+    <div class="muted" style="font-size:calc(var(--uifs,12px) - 1px);margin-bottom:6px">Edit this agent's identity &amp; characteristics (business-like, analytical, humor&hellip;). Applies from the next message &mdash; no rebuild. Empty &amp; Save resets to the built-in default.</div>
     <div class="tool-row"><button class="send" onclick="personaLoad()">Load current</button><button class="send" onclick="personaReset()">Reset to default</button></div>
     <textarea id="personaText" class="adv-body" placeholder="Load the target agent's persona, then edit&hellip;" rows="10" style="min-height:200px"></textarea>
     <div class="tool-row"><button class="send" onclick="personaSave()">Save persona</button></div>
@@ -179,7 +180,7 @@
       <select id="a2aTo" onchange="a2aHint()"></select>
       <button onclick="a2aLoad()">Refresh pairs</button>
     </div>
-    <div class="muted" style="font-size:11px;margin:4px 0" id="a2aPairsLine">allowed pairs: &mdash;</div>
+    <div class="muted" style="font-size:calc(var(--uifs,12px) - 1px);margin:4px 0" id="a2aPairsLine">allowed pairs: &mdash;</div>
     <div id="a2aGrant" style="display:none;border:1px solid #7c2d12;background:#1a0f0a;border-radius:6px;padding:8px;margin:6px 0">
       <div style="font:700 12px monospace;color:#fb923c">This pair is not permitted yet</div>
       <div class="muted" style="font-size:var(--uifs,12px);margin:4px 0">Granting is a separate, durable decision from sending: it stays in policy until you remove it, and it runs one way only. Approve the grant here, then the relay attestation below sends the message.</div>
@@ -206,10 +207,10 @@
     <div class="tool-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
       <button class="send" onclick="migratePlan()">Plan (read-only)</button>
       <button onclick="const o=document.getElementById('migOpts'); o.style.display=o.style.display==='none'?'block':'none'; this.textContent=o.style.display==='none'?'Options &#9656;':'Options &#9662;'">Options &#9656;</button>
-      <span class="muted" style="font-size:11px">defaults: whole profile-appropriate scope, fresh snapshot, add only</span>
+      <span class="muted" style="font-size:calc(var(--uifs,12px) - 1px)">defaults: whole profile-appropriate scope, fresh snapshot, add only</span>
     </div>
     <div id="migOpts" style="display:none;border:1px solid #232323;border-radius:6px;padding:8px;margin:4px 0">
-      <div class="muted" style="font-size:11px;margin-bottom:6px">Optional overrides. Leave blank for the defaults the plan shows.</div>
+      <div class="muted" style="font-size:calc(var(--uifs,12px) - 1px);margin-bottom:6px">Optional overrides. Leave blank for the defaults the plan shows.</div>
       <div class="tool-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <span class="muted">scope</span><input id="migScope" placeholder="which volumes move: blank = default for the profile pair (the plan lists what is allowed), or e.g. knowledge,claude" style="flex:1;min-width:280px;max-width:none">
       </div>
@@ -221,7 +222,7 @@
       </div>
     </div>
     <pre class="planout" id="migOut"><span class="muted">plan appears here &mdash; it reads both agents&rsquo; volumes over run-command, allow a minute&hellip;</span></pre>
-    <div class="muted" style="font-size:11px;margin:8px 0 4px">To EXECUTE: type the attestation sentence below, then Execute. This plane runs the migration &mdash; no CLI; every attempt &mdash; approved or refused &mdash; is ledgered here and in fleetctl&rsquo;s ledger.</div>
+    <div class="muted" style="font-size:calc(var(--uifs,12px) - 1px);margin:8px 0 4px">To EXECUTE: type the attestation sentence below, then Execute. This plane runs the migration &mdash; no CLI; every attempt &mdash; approved or refused &mdash; is ledgered here and in fleetctl&rsquo;s ledger.</div>
     <input id="migAttest" class="attest" placeholder="I approve migrating <from> to <to>" oninput="migAttestCheck()">
     <div class="muted" style="font-size:var(--uifs,12px);margin-top:4px" id="migHintLine">type exactly: I approve migrating &lt;from&gt; to &lt;to&gt;</div>
     <div style="margin-top:6px"><button id="migExec" class="send" style="background:#14b8a6;color:#042f2e" onclick="migrateGo()" disabled>Execute migration (--go)</button></div>
@@ -240,7 +241,7 @@
     <div class="muted" style="font-size:var(--uifs,12px);margin-top:4px" id="puHint">type exactly: I approve updating the control plane &lt;plane&gt;</div>
     <div style="margin-top:6px"><button id="puExec" class="send" onclick="planeUpdateGo()" disabled>Update plane</button></div>
     <h3 style="margin-top:16px">Advanced API console <span class="muted">(raw calls to the target)</span></h3>
-    <div class="muted" style="font-size:11px;margin-bottom:6px">target: <b id="advTarget">&mdash;</b> &middot; pick an endpoint &mdash; the body pre-fills where a POST needs one.</div>
+    <div class="muted" style="font-size:calc(var(--uifs,12px) - 1px);margin-bottom:6px">target: <b id="advTarget">&mdash;</b> &middot; pick an endpoint &mdash; the body pre-fills where a POST needs one.</div>
     <div class="tool-row"><select id="advEndpoint" onchange="advPick()"></select></div>
     <div class="tool-row" id="advCustomRow" style="display:none">
       <select id="advMethod"><option>GET</option><option>POST</option></select>
@@ -274,12 +275,12 @@
     <span class="muted" style="font-size:var(--uifs,12px);margin-left:6px">from</span> <input type="datetime-local" id="auFrom" style="font-size:var(--uifs,12px);padding:2px 4px"> <span class="muted" style="font-size:var(--uifs,12px)">to</span> <input type="datetime-local" id="auTo" style="font-size:var(--uifs,12px);padding:2px 4px"> <span class="muted" style="font-size:var(--uifs,12px)">(empty = full history)</span>
     <div class="aud-pane">
       <h4 style="color:#e5e7eb">Control plane &middot; aegis-audit.jsonl</h4>
-      <div class="muted" style="font-size:11px" id="audAegisChain">chain: &mdash;</div>
+      <div class="muted" style="font-size:calc(var(--uifs,12px) - 1px)" id="audAegisChain">chain: &mdash;</div>
       <pre class="planout" id="audAegisOut" style="height:240px;max-height:none"><span class="muted">loading&hellip;</span></pre>
     </div>
     <div class="aud-pane">
       <h4 style="color:#8ab4f8">Agents &middot; logs/audit.jsonl (per agent)</h4>
-      <div class="muted" style="font-size:11px">Each agent verifies only its own chain. Coverage compares its job records against its logged skill-runs &mdash; an intact chain that records nothing is not a pass.</div>
+      <div class="muted" style="font-size:calc(var(--uifs,12px) - 1px)">Each agent verifies only its own chain. Coverage compares its job records against its logged skill-runs &mdash; an intact chain that records nothing is not a pass.</div>
       <pre class="planout" id="audAgentOut" style="height:300px;max-height:none"><span class="muted">loading&hellip;</span></pre>
     </div>
   </div>
@@ -299,7 +300,7 @@
     </div>
     <div class="tool-row"><button class="send" onclick="provisionPlan()">Preview provision</button></div>
     <pre class="planout" id="provOut"><span class="muted">plan output appears here&hellip;</span></pre>
-    <div class="muted" style="font-size:11px;margin:8px 0 4px">To EXECUTE (creates cloud resources): 1) Write contract &rarr; 2) type the attestation sentence (<b style="color:#c9a227">I approve provisioning &lt;name&gt;</b>) and Execute &rarr; 3) once the stream shows the Key Vault created (~2 min in), <b>Seed keys from a SECOND Aegis tab</b> &mdash; the vault is created by up, and bootstrap fetches the keys near the end of the build (~8&ndash;10 min), so mid-build seeding is the correct window. fleetctl's preflight (caps &middot; budget &middot; placeholders &middot; operator email) stays the fail-closed gate &mdash; a failing check aborts with nothing created.</div>
+    <div class="muted" style="font-size:calc(var(--uifs,12px) - 1px);margin:8px 0 4px">To EXECUTE (creates cloud resources): 1) Write contract &rarr; 2) type the attestation sentence (<b style="color:#c9a227">I approve provisioning &lt;name&gt;</b>) and Execute &rarr; 3) once the stream shows the Key Vault created (~2 min in), <b>Seed keys from a SECOND Aegis tab</b> &mdash; the vault is created by up, and bootstrap fetches the keys near the end of the build (~8&ndash;10 min), so mid-build seeding is the correct window. fleetctl's preflight (caps &middot; budget &middot; placeholders &middot; operator email) stays the fail-closed gate &mdash; a failing check aborts with nothing created.</div>
     <div class="tool-row"><button class="send" onclick="provisionWriteContract()">1. Write contract</button><button class="send" onclick="provisionPlanPersisted()">Plan (real contract)</button></div>
     <div class="tool-row">
       <input id="pvAttest" class="attest" placeholder="I approve provisioning <name>" oninput="pvAttestCheck()">
@@ -331,7 +332,7 @@
       <button class="send" onclick="decommissionPlan()">Preview teardown</button>
     </div>
     <pre class="planout" id="decOut"><span class="muted">teardown plan appears here&hellip;</span></pre>
-    <div class="muted" style="font-size:11px;margin:8px 0 4px">To EXECUTE (destructive): type the attestation sentence below, then Execute. Aegis runs the teardown &mdash; no CLI; every attempt &mdash; approved or refused &mdash; is ledgered.</div>
+    <div class="muted" style="font-size:calc(var(--uifs,12px) - 1px);margin:8px 0 4px">To EXECUTE (destructive): type the attestation sentence below, then Execute. Aegis runs the teardown &mdash; no CLI; every attempt &mdash; approved or refused &mdash; is ledgered.</div>
     <div class="tool-row">
       <input id="dcAttest" class="attest" placeholder="I approve decommissioning <name>" oninput="dcAttestCheck()">
       <button id="dcExec" class="send" style="background:#ef4444" onclick="decommissionGo()" disabled>Execute teardown (--go)</button>
