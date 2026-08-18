@@ -272,7 +272,7 @@
     <div class="muted" style="font-size:var(--uifs,12px);margin-bottom:8px">Two independent chains, shown separately on purpose. The control plane records what was <b>commanded</b>; each agent records what it <b>did</b>. Neither can rewrite the other &mdash; so there is no single merged history to show, and a merged view would imply one.</div>
     <button onclick="auditLoad()">Refresh</button>
     <button onclick="auditExport()" title="One self-contained page with all three ledgers, each with its own verification result, never merged - print it or save as PDF from the browser. Leave the dates empty for full history; the agent chains are paged 500 at a time to the beginning and re-verified by the plane">Export printable report</button>
-    <span class="muted" style="font-size:var(--uifs,12px);margin-left:6px">from</span> <input type="datetime-local" id="auFrom" style="font-size:var(--uifs,12px);padding:2px 4px"> <span class="muted" style="font-size:var(--uifs,12px)">to</span> <input type="datetime-local" id="auTo" style="font-size:var(--uifs,12px);padding:2px 4px"> <span class="muted" style="font-size:var(--uifs,12px)">(empty = full history)</span>
+    <span class="muted" style="font-size:var(--uifs,12px);margin-left:6px">from</span> <input type="date" id="auFrom" style="font-size:var(--uifs,12px);padding:2px 4px"> <span class="muted" style="font-size:var(--uifs,12px)">to</span> <input type="date" id="auTo" style="font-size:var(--uifs,12px);padding:2px 4px"> <span class="muted" style="font-size:var(--uifs,12px)">(dates inclusive; empty = full history)</span>
     <div class="aud-pane">
       <h4 style="color:#e5e7eb">Control plane &middot; aegis-audit.jsonl</h4>
       <div class="muted" style="font-size:calc(var(--uifs,12px) - 1px)" id="audAegisChain">chain: &mdash;</div>
@@ -504,11 +504,14 @@ async function planeUpdateGo(){
     if(Date.now()-t0>120000){ clearInterval(tick); out.textContent+='\nstill waiting after 2 min \u2014 reload by hand (Ctrl+F5)'; }
   },2000);
 }
-// Export by date range: empty dates = full history. Local datetimes become ISO instants; the
-// plane pages every agent chain 500 at a time through the range and re-verifies what it received.
+// Export by date range: empty = full history. Whole local days: from = 00:00 of that day, to = 00:00
+// of the day AFTER (exclusive upper bound), so both dates are included in full; the plane pages
+// every agent chain 500 at a time through the range and re-verifies what it received.
 function auditExport(){
   const f=$('#auFrom')&&$('#auFrom').value, t=$('#auTo')&&$('#auTo').value;
-  const q=[]; if(f) q.push('from='+encodeURIComponent(new Date(f).toISOString())); if(t) q.push('to='+encodeURIComponent(new Date(t).toISOString()));
+  const q=[];
+  if(f){ q.push('from='+encodeURIComponent(new Date(f+'T00:00:00').toISOString())); }
+  if(t){ const d=new Date(t+'T00:00:00'); d.setDate(d.getDate()+1); q.push('to='+encodeURIComponent(d.toISOString())); }
   window.open('/api/audit/export'+(q.length?'?'+q.join('&'):''),'_blank');
 }
 function discoverEnroll(name){ openTool('prov'); const i=$('#enName'); if(i){ i.value=name; if(typeof enAttestCheck==='function') enAttestCheck(); i.scrollIntoView({block:'center'}); i.focus(); } }
