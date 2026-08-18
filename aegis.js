@@ -210,6 +210,24 @@ const FLEET_IAC_ROOT = (function () {
 })();
 const NAME_RE = /^[a-z][a-z0-9-]{1,23}$/;
 
+// The plane's own two checkouts, read-only: local head, remote head after a fetch, branch, and
+// tracked dirt (the ledger and backups are untracked by design and never block a pull).
+function repoState(dir) {
+  if (!dir) return { present: false };
+  const g = (args) => { const r = spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: 30000 }); return r.status === 0 ? (r.stdout || '').trim() : null; };
+  const fetched = spawnSync('git', ['-C', dir, 'fetch', '-q', 'origin'], { encoding: 'utf8', timeout: 60000 }).status === 0;
+  const branch = g(['rev-parse', '--abbrev-ref', 'HEAD']) || '?';
+  const local = g(['rev-parse', '--short', 'HEAD']) || '?';
+  const remote = g(['rev-parse', '--short', 'origin/' + branch]) || '?';
+  const dirty = (g(['status', '--porcelain', '--untracked-files=no']) || '').split('\n').filter(Boolean).length;
+  return { present: true, dir, fetched, branch, local, remote, dirty, pending: fetched && local !== '?' && remote !== '?' && local !== remote };
+}
+function planeRepoState() {
+  const unit = spawnSync('systemctl', ['is-active', 'aegis'], { encoding: 'utf8' });
+  return { aegis: repoState(__dirname), fleet: repoState(FLEET_IAC_ROOT), unit: (unit.stdout || '').trim() || 'unknown' };
+}
+function repoHeads(s) { return { aegis: s.aegis && s.aegis.local, fleet: s.fleet && s.fleet.local }; }
+
 function fleetctlPath() { return path.join(FLEET_IAC_ROOT, 'provision', 'bin', 'fleetctl.js'); }
 
 // Resolve a contract file for <name>. Prefer the persisted agents/<name>.agent.jsonc
@@ -707,6 +725,49 @@ const server = http.createServer(async (req, res) => {
   // and an operator must be able to read which one they are commanding: same panel, same
   // agents, different ledgers. $AEGIS_PLANE wins, else the host name -- the same rule
   // fleetctl enroll uses to name a plane's service tokens.
+  // ---- Update plane: the plane's own two checkouts (this repo, the fleet repo) moved to their
+  // pushed HEADs and the unit restarted -- from the panel, as an attested act. This is what
+  // `fleetctl aegis update` does from a workstation over run-command; here the plane does it to
+  // itself: fetch and read heads for the plan (nothing moved), fast-forward-only pulls as the
+  // service user for the go (a diverged checkout refuses rather than merges; a failed pull leaves
+  // the unit alone), the act ledgered with before/after commits, then the restart through the one
+  // sudoers rule the plane holds (systemctl restart aegis) after the response has gone out.
+  if (req.url === '/api/plane/update/plan' && req.method === 'GET') {
+    return sendJson(res, { ok: true, plane: planeName(), ...planeRepoState() });
+  }
+  if (req.url === '/api/plane/update/go' && req.method === 'POST') {
+    const b = await readBody(req);
+    const attest = String(b.attest || '');
+    const plane = planeName();
+    const required = 'I approve updating the control plane ' + plane;
+    const actor = actorOf(req);
+    const base = { action: 'plane-update', plane, actor };
+    if (attest.trim() !== required) {
+      audit({ ...base, phrase: attest, outcome: 'refused: attestation mismatch' });
+      return sendJson(res, { ok: false, out: 'REFUSED — attestation must read exactly:\n  ' + required }, 400);
+    }
+    const before = planeRepoState();
+    audit({ ...base, phrase: attest, outcome: 'started', before: repoHeads(before) });
+    const pulls = {};
+    let failed = false;
+    for (const r of ['aegis', 'fleet']) {
+      const dir = r === 'aegis' ? __dirname : FLEET_IAC_ROOT;
+      const p = spawnSync('git', ['-C', dir, 'pull', '--ff-only', '-q'], { encoding: 'utf8', timeout: 120000 });
+      const head = spawnSync('git', ['-C', dir, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' });
+      pulls[r] = { ok: p.status === 0, before: before[r] && before[r].local, after: (head.stdout || '').trim(), note: (p.stderr || p.stdout || '').trim().split('\n').filter(Boolean).slice(-1)[0] || '' };
+      if (p.status !== 0) failed = true;
+    }
+    if (failed) {
+      audit({ ...base, phrase: attest, outcome: 'failed: a pull failed; unit not restarted', pulls });
+      return sendJson(res, { ok: false, pulls, out: 'a pull failed (diverged checkout?) — the unit was NOT restarted' }, 500);
+    }
+    audit({ ...base, phrase: attest, outcome: 'done', pulls });
+    sendJson(res, { ok: true, pulls, restarting: true, out: 'pulled both checkouts; restarting the unit in ~1 s — the panel will reconnect' });
+    setTimeout(() => {
+      try { spawn('sudo', ['-n', '/usr/bin/systemctl', 'restart', 'aegis'], { stdio: 'ignore', detached: true }).unref(); } catch { /* the response is already out; the plan will show it did not move */ }
+    }, 800);
+    return;
+  }
   // ---- Discovery: what Azure holds against THIS plane's registry (fleetctl discover --json).
   // Read-only. Two planes, two registries, one Azure: an agent provisioned elsewhere shows up
   // here as unenrolled (an Enroll away), a registry entry whose RG is gone shows up as gone (a
