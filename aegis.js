@@ -282,30 +282,75 @@ function readJsonl(file) {
 // verifiable history that does not exist. Every section states its own verification result.
 const escapeHtml = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function who(a) { if (!a) return ''; if (typeof a === 'string') return a; return (a.label || a.id || '?') + (a.src ? ' [' + a.src + ']' : ''); }
-async function buildAuditExport(actor) {
+// Re-verify agent rows the plane received (newest-first raw chain entries): each hash is
+// recomputed exactly as the agent computed it (sha256 of prev_hash + the entry without its hash,
+// in the entry's own key order, which JSON preserves), and each entry's prev_hash must equal the
+// next-older entry's hash. So the export states what the plane itself checked, not only what the
+// agent said about itself -- and a page boundary that skipped a record shows as a break.
+function reverifyRows(rows) {
+  const crypto = require('crypto');
+  let checked = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const e = rows[i];
+    if (!e || typeof e.hash !== 'string' || typeof e.prev_hash !== 'string') return { ok: false, checked, brokenAt: e && e.ts, why: 'entry without hash fields' };
+    const copy = { ...e }; delete copy.hash;
+    const want = crypto.createHash('sha256').update(e.prev_hash + JSON.stringify(copy)).digest('hex');
+    if (want !== e.hash) return { ok: false, checked, brokenAt: e.ts, why: 'hash mismatch' };
+    if (i + 1 < rows.length && rows[i + 1] && e.prev_hash !== rows[i + 1].hash) return { ok: false, checked: checked + 1, brokenAt: e.ts, why: 'continuity break (a record between two pages is missing, or the chain is broken here)' };
+    checked++;
+  }
+  return { ok: true, checked, brokenAt: null };
+}
+// Page an agent's chain backwards through the requested window: newest 500 with ts < until,
+// then again with until = the oldest ts received, until a page comes back short or the window's
+// start is passed. Coverage is stated from what the agent reports it holds.
+async function pageAgentAudit(a, actor, range) {
+  const rows = []; let until = range.to || null, pages = 0, total = null, oldestTs = null, err = '';
+  while (pages < 400) {
+    const q = '/audit-recent?limit=500' + (range.from ? '&since=' + encodeURIComponent(range.from) : '') + (until ? '&until=' + encodeURIComponent(until) : '');
+    let j = null;
+    try { const r = await callAgent(a, 'GET', q, null, actor); if (r && r.status === 200) j = JSON.parse(r.body || '{}'); else err = 'audit-recent HTTP ' + (r && r.status); } catch (e) { err = 'unreachable: ' + String(e.message || e).slice(0, 80); }
+    if (!j) break;
+    if (total === null) { total = typeof j.total === 'number' ? j.total : null; oldestTs = j.oldestTs || null; }
+    const w = j.rows || [];
+    rows.push(...w); pages++;
+    if (w.length < 500) break;
+    const oldest = w[w.length - 1] && w[w.length - 1].ts; if (!oldest) break;
+    until = oldest;
+    if (range.from && oldest <= range.from) break;
+  }
+  return { rows, pages, total, oldestTs, err };
+}
+async function buildAuditExport(actor, range) {
+  range = range || {};
+  const inRange = (r) => (!range.from || String(r.ts || '') >= range.from) && (!range.to || String(r.ts || '') < range.to);
   const gen = new Date().toISOString();
   const plane = planeName();
   const chain = verifyChain();
-  const cp = readJsonl(AUDIT);
-  const fl = fleetctlLedgerFiles().flatMap((f) => readJsonl(f).map((r) => ({ ...r, _file: path.basename(path.dirname(f)) + '/' + path.basename(f) })));
+  const cpAll = readJsonl(AUDIT); const cp = cpAll.filter(inRange);
+  const flAll = fleetctlLedgerFiles().flatMap((f) => readJsonl(f).map((r) => ({ ...r, _file: path.basename(path.dirname(f)) + '/' + path.basename(f) })));
+  const fl = flAll.filter(inRange);
   fl.sort((a, b) => String(a.ts || '').localeCompare(String(b.ts || '')));
   const agents = loadAgents();
   const agentBlocks = [];
   for (const a of agents) {
-    let ver = null, rows = [], err = '';
+    let ver = null, err = '';
     try { const v = await callAgent(a, 'GET', '/audit-verify', null, actor); ver = v && v.status === 200 ? (JSON.parse(v.body || '{}').chain || null) : null; if (!v || v.status !== 200) err = 'audit-verify HTTP ' + (v && v.status); } catch (e) { err = 'unreachable: ' + String(e.message || e).slice(0, 80); }
-    try { const r = await callAgent(a, 'GET', '/audit-recent?limit=500', null, actor); rows = r && r.status === 200 ? (JSON.parse(r.body || '{}').rows || []) : []; } catch { /* keep err */ }
-    agentBlocks.push({ name: a.name, profile: a.profile, host: a.host, ver, rows, err });
+    const pg = await pageAgentAudit(a, actor, range);
+    if (pg.err && !err) err = pg.err;
+    const re = reverifyRows(pg.rows);
+    agentBlocks.push({ name: a.name, profile: a.profile, host: a.host, ver, rows: pg.rows, pages: pg.pages, total: pg.total, oldestTs: pg.oldestTs, re, err });
   }
+  const rangeText = (range.from || range.to) ? ('range ' + (range.from || 'beginning') + ' \u2192 ' + (range.to || 'now')) : 'full history';
   const css = 'body{font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#111;margin:24px;max-width:1100px}h1{font-size:18px;margin:0 0 4px}h2{font-size:15px;margin:22px 0 6px;border-bottom:1px solid #999;padding-bottom:3px;page-break-before:always}h2.first{page-break-before:auto}.meta{color:#444;font-size:11px}table{border-collapse:collapse;width:100%;margin-top:6px}th,td{border:1px solid #bbb;padding:3px 5px;text-align:left;vertical-align:top;font-size:11px;word-break:break-word}th{background:#eee}.ok{color:#0a7f2e;font-weight:700}.bad{color:#b00020;font-weight:700}.note{background:#f4f4f4;border:1px solid #ddd;padding:6px 8px;font-size:11px;margin:6px 0}@media print{body{margin:10mm}h2{page-break-before:always}h2.first{page-break-before:auto}.noprint{display:none}}';
   const th = (cols) => '<tr>' + cols.map((c) => '<th>' + escapeHtml(c) + '</th>').join('') + '</tr>';
   const td = (cells) => '<tr>' + cells.map((c) => '<td>' + escapeHtml(c) + '</td>').join('') + '</tr>';
   let h = '<!doctype html><html><head><meta charset="utf-8"><title>Aegis audit export · ' + escapeHtml(plane) + ' · ' + escapeHtml(gen) + '</title><style>' + css + '</style></head><body>';
-  h += '<h1>Aegis audit export — control plane <b>' + escapeHtml(plane) + '</b></h1><div class="meta">generated ' + escapeHtml(gen) + ' by ' + escapeHtml(who(actor)) + ' · agents: ' + escapeHtml(agents.map((a) => a.name).join(', ') || 'none') + '</div>';
+  h += '<h1>Aegis audit export — control plane <b>' + escapeHtml(plane) + '</b></h1><div class="meta">generated ' + escapeHtml(gen) + ' by ' + escapeHtml(who(actor)) + ' · ' + escapeHtml(rangeText) + ' · agents: ' + escapeHtml(agents.map((a) => a.name).join(', ') || 'none') + '</div>';
   h += '<div class="note">Three ledgers, three sections, deliberately not merged. The control plane records what was <b>commanded</b>; fleetctl records what was <b>attested against policy</b>; each agent records what it <b>did</b>. They are separate chains in separate trust domains and neither can rewrite another, so no single merged history exists to print. Actor labels are readable names for verified identities; the recorded id is the fact.</div>';
   h += '<button class="noprint" onclick="window.print()" style="margin:8px 0;padding:6px 14px">Print / save as PDF</button>';
   // 1 control plane
-  h += '<h2 class="first">1. Control plane ledger — aegis-audit.jsonl</h2><div class="meta">chain: ' + (chain.ok ? '<span class="ok">VERIFIED</span>' : '<span class="bad">BROKEN' + (chain.broken ? ' at seq ' + escapeHtml(chain.broken.seq) + ' — ' + escapeHtml(chain.broken.reason) : '') + '</span>') + ' · ' + escapeHtml(chain.checked || 0) + ' chained' + (chain.unchained ? ' · ' + escapeHtml(chain.unchained) + ' pre-chain' : '') + ' · ' + cp.length + ' records</div>';
+  h += '<h2 class="first">1. Control plane ledger — aegis-audit.jsonl</h2><div class="meta">chain: ' + (chain.ok ? '<span class="ok">VERIFIED</span>' : '<span class="bad">BROKEN' + (chain.broken ? ' at seq ' + escapeHtml(chain.broken.seq) + ' — ' + escapeHtml(chain.broken.reason) : '') + '</span>') + ' · ' + escapeHtml(chain.checked || 0) + ' chained' + (chain.unchained ? ' · ' + escapeHtml(chain.unchained) + ' pre-chain' : '') + ' · ' + cp.length + ' in ' + escapeHtml(rangeText) + ' (' + cpAll.length + ' held)</div>';
   h += '<table>' + th(['seq', 'ts', 'action / event', 'agent', 'outcome / status', 'actor', 'detail']) + cp.map((x) => td([x.seq !== undefined ? '#' + x.seq : '', x.ts, x.action || x.event || '', x.name || x.agent || '', x.outcome || x.status || '', who(x.actor), [x.phrase ? '«' + x.phrase + '»' : '', x.key ? 'key ' + x.key : '', x.from && x.to && typeof x.from === 'string' ? x.from + '>' + x.to : '', x.mode ? 'mode ' + x.mode : '', x.via ? 'via ' + x.via : ''].filter(Boolean).join(' · ')])).join('') + '</table>';
   // 2 fleetctl
   h += '<h2>2. fleetctl attested acts — policy-audit.jsonl</h2><div class="meta">' + fl.length + ' records · files: ' + escapeHtml([...new Set(fl.map((r) => r._file))].join(', ') || 'none') + ' · append-only, not hash-chained (attested acts against policy; the control plane\'s chain above records who commanded them)</div>';
@@ -313,7 +358,10 @@ async function buildAuditExport(actor) {
   // 3 agents
   for (const b of agentBlocks) {
     h += '<h2>3. Agent chain — ' + escapeHtml(b.name) + ' (' + escapeHtml(b.profile || '?') + ') — logs/audit.jsonl</h2>';
-    h += '<div class="meta">' + (b.err ? '<span class="bad">' + escapeHtml(b.err) + '</span>' : (b.ver ? (b.ver.ok ? '<span class="ok">chain VERIFIED</span> · ' + escapeHtml(b.ver.length || 0) + ' entries' : '<span class="bad">chain BROKEN at entry ' + escapeHtml(b.ver.brokenAt) + ' of ' + escapeHtml(b.ver.length || 0) + '</span>') : 'chain: unread')) + ' · showing ' + b.rows.length + ' most recent (agent-verified; this document is a copy, the chain stays with the agent)</div>';
+    h += '<div class="meta">' + (b.err ? '<span class="bad">' + escapeHtml(b.err) + '</span>' : (b.ver ? (b.ver.ok ? '<span class="ok">chain VERIFIED by the agent</span> · ' + escapeHtml(b.ver.length || 0) + ' entries' : '<span class="bad">chain BROKEN at entry ' + escapeHtml(b.ver.brokenAt) + '</span>') : 'chain state unknown'))
+      + ' · ' + b.rows.length + ' records in ' + escapeHtml(rangeText) + (b.total !== null && b.total !== undefined ? ' of ' + b.total + ' held' + (b.oldestTs ? ' since ' + escapeHtml(b.oldestTs) : '') : '') + ' · ' + b.pages + ' page' + (b.pages === 1 ? '' : 's') + ' of 500'
+      + ' · plane re-verification of what it received: ' + (b.rows.length ? (b.re.ok ? '<span class="ok">OK (' + b.re.checked + ' hashes + continuity)</span>' : '<span class="bad">BROKEN at ' + escapeHtml(b.re.brokenAt) + ' — ' + escapeHtml(b.re.why) + '</span>') : 'nothing to check')
+      + ' (this document is a copy; the chain stays with the agent)</div>';
     h += '<table>' + th(['ts', 'event', 'route', 'rc', 'duration', 'actor', 'on behalf of', 'detail']) + b.rows.map((x) => td([x.ts, x.event || '', x.route || '', x.exitCode !== undefined && x.exitCode !== null ? x.exitCode : '', x.durationMs !== undefined ? x.durationMs + 'ms' : '', who(x.actor), x.onBehalfOf ? who(x.onBehalfOf) : '', [x.name || '', x.job || '', x.jobId || '', x.protected !== undefined ? 'protected=' + x.protected : ''].filter(Boolean).join(' · ')])).join('') + '</table>';
   }
   h += '<div class="meta" style="margin-top:18px">end of export · ' + escapeHtml(gen) + '</div></body></html>';
@@ -559,10 +607,13 @@ const server = http.createServer(async (req, res) => {
   }
   // Printable export (HTML, print to PDF from the browser). Read-only; the act of exporting is
   // itself recorded on the control-plane chain, because a copy of the ledgers left the plane.
-  if (req.url === '/api/audit/export' && req.method === 'GET') {
+  if (req.url.startsWith('/api/audit/export') && req.method === 'GET') {
     const actor = actorOf(req);
-    audit({ action: 'audit-export', actor, outcome: 'ok' });
-    const html = await buildAuditExport(actor);
+    const u = new URL(req.url, 'http://x');
+    const iso = (v) => { if (!v) return null; const d = new Date(v); return isNaN(d.getTime()) ? null : d.toISOString(); };
+    const range = { from: iso(u.searchParams.get('from')), to: iso(u.searchParams.get('to')) };
+    audit({ action: 'audit-export', actor, outcome: 'ok', range: (range.from || range.to) ? range : 'full' });
+    const html = await buildAuditExport(actor, range);
     res.statusCode = 200; res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.setHeader('Cache-Control', 'no-store');
     return res.end(html);
   }

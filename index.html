@@ -270,7 +270,8 @@
     <h3 style="margin:4px 0 8px">Audit &middot; hash-chained ledgers</h3>
     <div class="muted" style="font-size:var(--uifs,12px);margin-bottom:8px">Two independent chains, shown separately on purpose. The control plane records what was <b>commanded</b>; each agent records what it <b>did</b>. Neither can rewrite the other &mdash; so there is no single merged history to show, and a merged view would imply one.</div>
     <button onclick="auditLoad()">Refresh</button>
-    <button onclick="window.open('/api/audit/export','_blank')" title="One self-contained page with all three ledgers, each with its own verification result, never merged - print it or save as PDF from the browser">Export printable report</button>
+    <button onclick="auditExport()" title="One self-contained page with all three ledgers, each with its own verification result, never merged - print it or save as PDF from the browser. Leave the dates empty for full history; the agent chains are paged 500 at a time to the beginning and re-verified by the plane">Export printable report</button>
+    <span class="muted" style="font-size:11px;margin-left:6px">from</span> <input type="datetime-local" id="auFrom" style="font-size:11px;padding:1px 3px"> <span class="muted" style="font-size:11px">to</span> <input type="datetime-local" id="auTo" style="font-size:11px;padding:1px 3px"> <span class="muted" style="font-size:11px">(empty = full history)</span>
     <div class="aud-pane">
       <h4 style="color:#e5e7eb">Control plane &middot; aegis-audit.jsonl</h4>
       <div class="muted" style="font-size:11px" id="audAegisChain">chain: &mdash;</div>
@@ -501,6 +502,13 @@ async function planeUpdateGo(){
     catch(e){ seen=true; out.textContent+='.'; }
     if(Date.now()-t0>120000){ clearInterval(tick); out.textContent+='\nstill waiting after 2 min \u2014 reload by hand (Ctrl+F5)'; }
   },2000);
+}
+// Export by date range: empty dates = full history. Local datetimes become ISO instants; the
+// plane pages every agent chain 500 at a time through the range and re-verifies what it received.
+function auditExport(){
+  const f=$('#auFrom')&&$('#auFrom').value, t=$('#auTo')&&$('#auTo').value;
+  const q=[]; if(f) q.push('from='+encodeURIComponent(new Date(f).toISOString())); if(t) q.push('to='+encodeURIComponent(new Date(t).toISOString()));
+  window.open('/api/audit/export'+(q.length?'?'+q.join('&'):''),'_blank');
 }
 function discoverEnroll(name){ openTool('prov'); const i=$('#enName'); if(i){ i.value=name; if(typeof enAttestCheck==='function') enAttestCheck(); i.scrollIntoView({block:'center'}); i.focus(); } }
 function discoverDecommission(name){ openTool('dec'); const i=$('#dcName'); if(i){ i.value=name; if(typeof dcAttestCheck==='function') dcAttestCheck(); i.scrollIntoView({block:'center'}); i.focus(); } }
