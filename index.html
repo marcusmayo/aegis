@@ -237,8 +237,7 @@
     <div class="muted" style="font-size:var(--uifs,12px);margin-bottom:6px">Moves this plane's two checkouts (aegis, agent-fleet-iac) to their pushed HEADs, fast-forward only, then restarts the unit. Attested and ledgered with before/after commits &mdash; it changes the code that runs every other attested lane. Anything typed while the plane restarts is dropped; the panel reconnects on its own.</div>
     <div class="tool-row"><button onclick="planeUpdatePlan()">Check for updates</button></div>
     <pre class="planout" id="puOut" style="min-height:60px"><span class="muted">heads appear here&hellip;</span></pre>
-    <input id="puAttest" class="attest" placeholder="I approve updating the control plane <plane>" oninput="puAttestCheck()">
-    <div class="muted" style="font-size:var(--uifs,12px);margin-top:4px" id="puHint">type exactly: I approve updating the control plane &lt;plane&gt;</div>
+    <div class="muted" style="font-size:var(--uifs,12px);margin-top:4px" id="puHint">check for updates first</div>
     <div style="margin-top:6px"><button id="puExec" class="send" onclick="planeUpdateGo()" disabled>Update plane</button></div>
     <h3 style="margin-top:16px">Advanced API console <span class="muted">(raw calls to the target)</span></h3>
     <div class="muted" style="font-size:calc(var(--uifs,12px) - 1px);margin-bottom:6px">target: <b id="advTarget">&mdash;</b> &middot; pick an endpoint &mdash; the body pre-fills where a POST needs one.</div>
@@ -473,28 +472,32 @@ async function fleetDiscover(){
 }
 // Update plane: check (fetch + heads, nothing moved) -> attest -> go -> the plane pulls both
 // checkouts, ledgers, restarts itself; the panel polls /api/plane until it answers again, then reloads.
-let PU_PENDING=false;
-function puSentence(){ return 'I approve updating the control plane '+PLANE; }
-function puAttestCheck(){
-  const typed=($('#puAttest')?$('#puAttest').value:'').trim(); const h=$('#puHint'); const b=$('#puExec'); if(!h||!b) return;
-  const req=puSentence(); const ok=!!PLANE&&typed===req&&PU_PENDING;
-  b.disabled=!ok;
-  if(ok){ h.style.color='#22c55e'; h.textContent='\u2713 phrase matches \u2014 Update enabled'; }
-  else if(typed){ h.style.color='#ef4444'; h.textContent=(PU_PENDING?'MISMATCH \u2014 type exactly: '+req:'nothing pending \u2014 Check for updates first'); }
-  else { h.style.color=''; h.textContent='type exactly: '+req; }
+// The confirmation is the move: the button names the exact commits the plan showed and sends
+// them with the go; the plane refuses if that is no longer the move (stale plan). No sentence --
+// a fast-forward of the same branch is reversible by another update; the ledger record is the same.
+let PU_PENDING=false, PU_EXPECT=null;
+function puArm(j){
+  const b=$('#puExec'), h=$('#puHint'); if(!b||!h) return;
+  PU_PENDING=!!((j&&j.aegis&&j.aegis.pending)||(j&&j.fleet&&j.fleet.pending));
+  PU_EXPECT=PU_PENDING?{aegis:{from:j.aegis&&j.aegis.local,to:j.aegis&&j.aegis.remote},fleet:{from:j.fleet&&j.fleet.local,to:j.fleet&&j.fleet.remote}}:null;
+  b.disabled=!PU_PENDING;
+  if(PU_PENDING){
+    const parts=[]; if(j.aegis&&j.aegis.pending) parts.push('aegis '+j.aegis.local+'\u2192'+j.aegis.remote); if(j.fleet&&j.fleet.pending) parts.push('fleet '+j.fleet.local+'\u2192'+j.fleet.remote);
+    b.textContent='Update plane: '+parts.join(' \u00b7 '); h.style.color=''; h.textContent='one click moves exactly those commits and restarts the unit; the act is ledgered with before/after';
+  } else { b.textContent='Update plane'; h.style.color=''; h.textContent='nothing pending'; }
 }
 function puLine(label,r){ if(!r||!r.present) return label+': checkout not found'; return label+': '+r.local+' \u2192 '+(r.fetched?r.remote:'? (fetch failed)')+'  '+(r.pending?'UPDATE PENDING':'up to date')+(r.dirty?'  \u26a0 '+r.dirty+' tracked change(s) \u2014 a pull may refuse':''); }
 async function planeUpdatePlan(){
   const out=$('#puOut'); out.textContent='fetching\u2026';
   let j=null; try{ j=await (await fetch('/api/plane/update/plan')).json(); }catch(e){ out.textContent='plan failed: '+e; return; }
-  PU_PENDING=!!((j.aegis&&j.aegis.pending)||(j.fleet&&j.fleet.pending));
-  out.textContent=[puLine('aegis          ',j.aegis),puLine('agent-fleet-iac',j.fleet),'unit: '+(j.unit||'?'),'',PU_PENDING?'attest below to update':'nothing to update'].join('\n');
-  puAttestCheck();
+  const pend=!!((j.aegis&&j.aegis.pending)||(j.fleet&&j.fleet.pending));
+  out.textContent=[puLine('aegis          ',j.aegis),puLine('agent-fleet-iac',j.fleet),'unit: '+(j.unit||'?'),'',pend?'the button below names the move':'nothing to update'].join('\n');
+  puArm(j);
 }
 async function planeUpdateGo(){
   const out=$('#puOut'); const b=$('#puExec'); b.disabled=true; out.textContent+='\n\nupdating\u2026';
-  let j=null; try{ j=await (await fetch('/api/plane/update/go',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({attest:$('#puAttest').value})})).json(); }catch(e){ out.textContent+='\nrequest failed: '+e; return; }
-  if(!j.ok){ out.textContent+='\n'+(j.out||'failed'); return; }
+  let j=null; try{ j=await (await fetch('/api/plane/update/go',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({expect:PU_EXPECT})})).json(); }catch(e){ out.textContent+='\nrequest failed: '+e; return; }
+  if(!j.ok){ out.textContent+='\n'+(j.out||'failed'); if(!/stale/i.test(j.out||'')) b.disabled=false; return; }
   const p=j.pulls||{}; out.textContent+='\n'+['aegis: '+(p.aegis?p.aegis.before+' \u2192 '+p.aegis.after:'?'),'agent-fleet-iac: '+(p.fleet?p.fleet.before+' \u2192 '+p.fleet.after:'?'),j.out||''].join('\n');
   // the unit restarts now; poll until the plane answers again, then reload so this page runs the new code
   const t0=Date.now(); let seen=false;

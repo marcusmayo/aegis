@@ -786,19 +786,35 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/api/plane/update/plan' && req.method === 'GET') {
     return sendJson(res, { ok: true, plane: planeName(), ...planeRepoState() });
   }
+  // The confirmation is the move itself, not a typed sentence: the panel sends the exact commits
+  // the operator saw in the plan (from -> to per repo) and the plane accepts only if that is still
+  // the move it would make. A push that lands between plan and go makes the plan stale and the go
+  // is refused with the new heads. The record is unchanged -- actor, plane, before/after -- and it
+  // is what an auditor needs; the sentence had been the same friction as a destructive act for a
+  // reversible fast-forward, and today it was typed six times.
   if (req.url === '/api/plane/update/go' && req.method === 'POST') {
     const b = await readBody(req);
-    const attest = String(b.attest || '');
     const plane = planeName();
-    const required = 'I approve updating the control plane ' + plane;
     const actor = actorOf(req);
     const base = { action: 'plane-update', plane, actor };
-    if (attest.trim() !== required) {
-      audit({ ...base, phrase: attest, outcome: 'refused: attestation mismatch' });
-      return sendJson(res, { ok: false, out: 'REFUSED — attestation must read exactly:\n  ' + required }, 400);
-    }
     const before = planeRepoState();
-    audit({ ...base, phrase: attest, outcome: 'started', before: repoHeads(before) });
+    const expect = (b && typeof b.expect === 'object' && b.expect) || {};
+    const stale = [];
+    for (const r of ['aegis', 'fleet']) {
+      const e = expect[r] || {}, s = before[r] || {};
+      if (!s.present) continue;
+      if (!s.pending) continue;                                    // nothing to move for this repo
+      if (e.from !== s.local || e.to !== s.remote) stale.push(r + ': plan said ' + (e.from || '?') + ' \u2192 ' + (e.to || '?') + ', plane sees ' + s.local + ' \u2192 ' + s.remote);
+    }
+    if (!(before.aegis && before.aegis.pending) && !(before.fleet && before.fleet.pending)) {
+      audit({ ...base, outcome: 'refused: nothing pending', before: repoHeads(before) });
+      return sendJson(res, { ok: false, out: 'nothing to update — both checkouts are at their pushed HEADs' }, 400);
+    }
+    if (stale.length) {
+      audit({ ...base, outcome: 'refused: plan stale', expect, before: repoHeads(before) });
+      return sendJson(res, { ok: false, out: 'REFUSED — the plan is stale, check for updates again:\n  ' + stale.join('\n  ') }, 409);
+    }
+    audit({ ...base, expect, outcome: 'started', before: repoHeads(before) });
     const pulls = {};
     let failed = false;
     for (const r of ['aegis', 'fleet']) {
@@ -809,10 +825,10 @@ const server = http.createServer(async (req, res) => {
       if (p.status !== 0) failed = true;
     }
     if (failed) {
-      audit({ ...base, phrase: attest, outcome: 'failed: a pull failed; unit not restarted', pulls });
+      audit({ ...base, outcome: 'failed: a pull failed; unit not restarted', pulls });
       return sendJson(res, { ok: false, pulls, out: 'a pull failed (diverged checkout?) — the unit was NOT restarted' }, 500);
     }
-    audit({ ...base, phrase: attest, outcome: 'done', pulls });
+    audit({ ...base, outcome: 'done', pulls });
     sendJson(res, { ok: true, pulls, restarting: true, out: 'pulled both checkouts; restarting the unit in ~1 s — the panel will reconnect' });
     setTimeout(() => {
       try { spawn('sudo', ['-n', '/usr/bin/systemctl', 'restart', 'aegis'], { stdio: 'ignore', detached: true }).unref(); } catch { /* the response is already out; the plan will show it did not move */ }
