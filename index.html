@@ -439,8 +439,8 @@ async function loadFleet(){
       + '<span class="minipill" id="minipend-'+a.name+'" title="castor intake queue \u2014 items already processed, awaiting review; click to dump GET /pending"></span></div>'
       + '<div class="row mdlrow"><span class="ctl" id="mdl-'+a.name+'"></span></div>'
       + '<div id="ctl-'+a.name+'" style="margin-top:6px"><span id="prot-'+a.name+'"></span><span class="ctl" id="web-'+a.name+'" style="margin-left:12px"></span><div id="protformslot-'+a.name+'"></div></div>'
-      + '<div class="row sect" style="min-width:0"><span class="lbl">import:</span><input type="file" id="impf-'+a.name+'" class="file" style="flex:1 1 0%;width:0;min-width:0"></div>'
-      + '<div class="row indent"><button class="webtog off" onclick="impStage(\''+a.name+'\')" title="Upload the chosen file to this agent\u2019s staging area">Stage</button><button class="webtog off" onclick="impList(\''+a.name+'\')" title="List staged uploads \u2014 files waiting for you to click Process (distinct from the intake queue)">Staged</button></div>'
+      + '<div class="row sect" style="min-width:0"><span class="lbl">import:</span><input type="file" multiple id="impf-'+a.name+'" class="file" style="flex:1 1 0%;width:0;min-width:0"></div>'
+      + '<div class="row indent"><button class="webtog off" onclick="impStage(\''+a.name+'\')" title="Upload the chosen file to this agent\u2019s staging area">Stage</button><button class="webtog off" onclick="impList(\''+a.name+'\')" title="List staged uploads \u2014 files waiting for you to click Process (distinct from the intake queue)">Staged</button><button class="webtog off" onclick="impProcAll(\''+a.name+'\')" title="Move every staged file into this profile\u2019s pipeline dir, one call each, stopping on the first failure. Staging is the operator\u2019s decision point - this makes it one click instead of one per file">Process all</button></div>'
       + '<div class="row indent" id="impl-'+a.name+'" style="display:none;flex-wrap:wrap"></div>'
       + (a.profile==='keel' ? '<div class="row"><span class="lbl">exports:</span><span style="display:flex;gap:14px;flex-wrap:wrap;min-width:0;align-items:center"><a href="#" onclick="csExport(\''+a.name+'\',\'/export\');return false" style="color:#8ab4f8;text-decoration:none">portfolio</a><a href="#" onclick="csExport(\''+a.name+'\',\'/export-multisource\');return false" style="color:#8ab4f8;text-decoration:none">multisource</a><a href="#" onclick="csExport(\''+a.name+'\',\'/export-reconcile\');return false" style="color:#8ab4f8;text-decoration:none">reconcile</a></span></div>' : '')
       + '<div class="row sect" id="rc-'+a.name+'">probing&hellip;</div>'
@@ -774,16 +774,23 @@ async function csExport(agent,p){
     log(agent,'GET',p,{status:200,body:'downloaded '+aEl.download+' ('+blob.size+' bytes)'});
   }catch(e){ log(agent,'GET',p,{status:0,body:String(e)}); }
 }
-function impStage(agent){
-  const f=(document.getElementById('impf-'+agent).files||[])[0]; if(!f){ alert('choose a file first'); return; }
-  const rd=new FileReader();
-  rd.onload=async ()=>{ const b64=String(rd.result).split(',')[1]||'';
+// Stage every chosen file, one call each and in order, so a failure names the file it happened
+// on instead of failing a whole batch anonymously. Reading is async per file, hence the await
+// wrapper rather than a callback per file racing the others.
+function readAsBase64(f){ return new Promise((res,rej)=>{ const rd=new FileReader(); rd.onload=()=>res(String(rd.result).split(',')[1]||''); rd.onerror=()=>rej(new Error('read failed')); rd.readAsDataURL(f); }); }
+async function impStage(agent){
+  const list=Array.from((document.getElementById('impf-'+agent).files||[]));
+  if(!list.length){ alert('choose one or more files first'); return; }
+  let ok=0;
+  for(const f of list){
+    let b64; try{ b64=await readAsBase64(f); }catch(e){ log(agent,'note','',{status:0,body:'could not read '+f.name}); continue; }
     const r=await api(agent,'POST','/files/stage',{name:f.name,dataBase64:b64});
     log(agent,'POST','/files/stage '+f.name,r);
-    if(r.status===404) log(agent,'note','',{status:0,body:'this agent predates the import lane \u2014 lands at its rebuild'});
-    else impList(agent);
-  };
-  rd.readAsDataURL(f);
+    if(r.status===404){ log(agent,'note','',{status:0,body:'this agent predates the import lane \u2014 lands at its rebuild'}); return; }
+    if(r.status===200) ok++;
+  }
+  log(agent,'note','',{status:0,body:'staged '+ok+' of '+list.length+' \u2014 nothing is processed until you say so'});
+  impList(agent);
 }
 async function impList(agent){
   const r=await api(agent,'GET','/files/staged'); const el=document.getElementById('impl-'+agent); if(!el)return;
@@ -794,6 +801,23 @@ async function impList(agent){
   }catch(e){ el.textContent='parse error'; }
 }
 async function impProc(agent,n){ const r=await api(agent,'POST','/files/process',{name:n}); log(agent,'POST','/files/process '+n,r); impList(agent); }
+// Process every staged file. Sequential and STOPS on the first failure: a half-moved batch with
+// a silent gap in the middle is worse than a short one that says where it stopped.
+async function impProcAll(agent){
+  const r=await api(agent,'GET','/files/staged');
+  if(r.status!==200){ log(agent,'GET','/files/staged',r); return; }
+  let files=[]; try{ files=(JSON.parse(r.body).files||[]).map(x=>x.name); }catch(e){ return; }
+  if(!files.length){ log(agent,'note','',{status:0,body:'nothing staged'}); return; }
+  let done=0;
+  for(const n of files){
+    const p=await api(agent,'POST','/files/process',{name:n});
+    log(agent,'POST','/files/process '+n,p);
+    if(p.status!==200){ log(agent,'note','',{status:0,body:'stopped after '+done+' of '+files.length+' \u2014 '+n+' failed; the rest are still staged'}); break; }
+    done++;
+  }
+  if(done===files.length) log(agent,'note','',{status:0,body:'processed '+done+' of '+files.length});
+  impList(agent);
+}
 
 async function loadWeb(a){
   const el = $('#web-'+a.name); if(!el) return;
