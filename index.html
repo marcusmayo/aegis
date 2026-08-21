@@ -271,6 +271,8 @@
     <div class="muted" style="font-size:var(--uifs,12px);margin-bottom:8px">Two independent chains, shown separately on purpose. The control plane records what was <b>commanded</b>; each agent records what it <b>did</b>. Neither can rewrite the other &mdash; so there is no single merged history to show, and a merged view would imply one.</div>
     <button onclick="auditLoad()">Refresh</button>
     <button onclick="auditExport()" title="One self-contained page with all three ledgers, each with its own verification result, never merged - print it or save as PDF from the browser. Leave the dates empty for full history; the agent chains are paged 500 at a time to the beginning and re-verified by the plane">Export printable report</button>
+    <button onclick="ledgerArchive()" id="ledgerBtn" title="Write a verified copy of all three ledgers into the ledgers class of the fleet store, which no lifecycle rule can delete. Runs once per UTC day on its own; this button captures now. Metadata and hashes only - no prompt, reply or note content is in any chain">Archive ledgers now</button>
+    <span class="muted" id="ledgerState" style="font-size:var(--uifs,12px);margin-left:6px"></span>
     <span class="muted" style="font-size:var(--uifs,12px);margin-left:6px">from</span> <input type="date" id="auFrom" style="font-size:var(--uifs,12px);padding:2px 4px"> <span class="muted" style="font-size:var(--uifs,12px)">to</span> <input type="date" id="auTo" style="font-size:var(--uifs,12px);padding:2px 4px"> <span class="muted" style="font-size:var(--uifs,12px)">(dates inclusive; empty = full history)</span>
     <div class="aud-pane">
       <h4 style="color:#e5e7eb">Control plane &middot; aegis-audit.jsonl</h4>
@@ -516,6 +518,32 @@ function auditExport(){
   if(f){ q.push('from='+encodeURIComponent(new Date(f+'T00:00:00').toISOString())); }
   if(t){ const d=new Date(t+'T00:00:00'); d.setDate(d.getDate()+1); q.push('to='+encodeURIComponent(d.toISOString())); }
   window.open('/api/audit/export'+(q.length?'?'+q.join('&'):''),'_blank');
+}
+// The archive is a copy leaving the plane, so the act is ledgered like the export is. The button
+// reports what landed -- blob, size, per-agent row counts and whether the plane's re-verification
+// held -- because "ok" with no numbers is how a lane that quietly archives nothing looks.
+async function ledgerLoadState(){
+  try{ const r=await (await fetch('/api/ledgers/state',{cache:'no-store'})).json(); const el=$('#ledgerState'); if(!el) return;
+    if(!r||!r.ok){ el.textContent=''; return; }
+    if(!r.enabled){ el.textContent='archive off (no fleet lane)'; return; }
+    el.textContent = r.lastCapturedAt ? ('last capture '+String(r.lastCapturedAt).slice(0,19)+'Z \u00b7 '+(r.lastBlob||'')) : 'no capture yet';
+  }catch(e){}
+}
+async function ledgerArchive(){
+  const b=$('#ledgerBtn'), el=$('#ledgerState');
+  if(b) b.disabled=true; if(el){ el.style.color=''; el.textContent='capturing\u2026'; }
+  try{
+    const r=await (await fetch('/api/ledgers/archive',{method:'POST'})).json();
+    if(el){
+      if(r&&r.ok){
+        const per=(r.counts&&r.counts.agents||[]).map(a=>a.name+' '+a.rows+(a.reverified?'':' UNVERIFIED')).join(', ');
+        el.style.color='#22c55e';
+        el.textContent=(r.already?'already captured today \u2014 ':'')+r.blob+' \u00b7 '+Math.round((r.bytes||0)/1024)+'K \u00b7 plane '+r.counts.controlPlane+' \u00b7 fleetctl '+r.counts.fleetctl+(per?' \u00b7 '+per:'');
+      } else { el.style.color='#ef4444'; el.textContent='FAILED \u2014 '+((r&&(r.error||r.out))||'see the ledger'); }
+    }
+    auditPoke();
+  }catch(e){ if(el){ el.style.color='#ef4444'; el.textContent='failed: '+e; } }
+  if(b) b.disabled=false;
 }
 function discoverEnroll(name){ openTool('prov'); const i=$('#enName'); if(i){ i.value=name; if(typeof enAttestCheck==='function') enAttestCheck(); i.scrollIntoView({block:'center'}); i.focus(); } }
 function discoverDecommission(name){ openTool('dec'); const i=$('#dcName'); if(i){ i.value=name; if(typeof dcAttestCheck==='function') dcAttestCheck(); i.scrollIntoView({block:'center'}); i.focus(); } }
@@ -957,6 +985,7 @@ async function auditLoad(){
   const ae=document.getElementById('audAegisOut'), ac=document.getElementById('audAegisChain');
   const ag=document.getElementById('audAgentOut');
   ae.textContent='loading\u2026'; ag.textContent='loading\u2026';
+  ledgerLoadState();
   try{
     const r=await (await fetch('/api/audit/recent?limit=30')).json();
     const c=r.chain||{};

@@ -197,6 +197,7 @@ function readBody(req) {
 // spawned fleetctl inherits them, so there's no per-shell env juggling. FLEET_IAC_ROOT
 // points at the agent-fleet-iac checkout.
 const os = require('os');
+const zlib = require('zlib');
 const { spawnSync, spawn } = require('child_process');
 // Resolve the agent-fleet-iac checkout: env wins, then aegis.config.json "fleetIacRoot",
 // then the sibling ../agent-fleet-iac (the standard workstation layout). Kills the
@@ -275,6 +276,117 @@ function readJsonl(file) {
   try { return fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean); }
   catch { return []; }
 }
+// ---------------------------------------------------------------------------
+// Ledger archive. The chains live on the machines that wrote them, and those machines are
+// disposable -- an agent's chain is inside a nightly tarball the store deletes at fourteen
+// days, so beyond a fortnight the only copy was on the VM. This lane writes a verified copy
+// into the ledgers class, which no lifecycle rule can delete.
+//
+// The PLANE writes it, not the agents. One writer keeps every agent's MSI scoped to its own
+// container, and the plane is the only party that already re-verifies what it received: each
+// hash recomputed, each record's prev_hash matched to the next-older one, so a page boundary
+// that dropped a record shows up as a break rather than as a gap nobody notices.
+//
+// Each run covers a WINDOW, not all of history: from two days before the last successful
+// capture, to now. The overlap means a day the plane was down, or an agent unreachable, is
+// picked up by the next run -- and pageAgentAudit walks backwards, so a first run with no
+// state captures everything the agents still hold.
+const LEDGER_STATE = path.join(__dirname, 'ledger-archive.json');
+const LEDGER_OVERLAP_MS = 48 * 3600 * 1000;
+const LEDGER_TICK_MS = 3600 * 1000;
+
+function ledgerState() {
+  try { return JSON.parse(fs.readFileSync(LEDGER_STATE, 'utf8')) || {}; } catch { return {}; }
+}
+function ledgerStateWrite(st) {
+  try { fs.writeFileSync(LEDGER_STATE, JSON.stringify(st, null, 1)); } catch (e) { /* state is a convenience, never a gate */ }
+}
+
+async function gatherLedgers(range, actor) {
+  const inRange = (r) => (!range.from || String(r.ts || '') >= range.from) && (!range.to || String(r.ts || '') < range.to);
+  const cp = readJsonl(AUDIT).filter(inRange);
+  const fl = fleetctlLedgerFiles()
+    .flatMap((f) => readJsonl(f).map((r) => ({ ...r, _file: path.basename(f) })))
+    .filter(inRange)
+    .sort((a, b) => String(a.ts || '').localeCompare(String(b.ts || '')));
+  const blocks = [];
+  for (const a of loadAgents()) {
+    const pg = await pageAgentAudit(a, actor, range);
+    blocks.push({
+      name: a.name, profile: a.profile || null, host: a.host || null,
+      rows: pg.rows, pages: pg.pages, heldTotal: pg.total, oldestTs: pg.oldestTs,
+      reverified: reverifyRows(pg.rows), err: pg.err || null,
+    });
+  }
+  return {
+    schema: 'aegis.ledger-archive/1',
+    capturedAt: new Date().toISOString(),
+    plane: planeName(),
+    window: { from: range.from || null, to: range.to || null },
+    note: 'Metadata and hashes only -- no prompt, reply or note content is held in any chain. '
+      + 'A chain proves a record existed unaltered at capture time; it does not say what it said.',
+    controlPlane: { chain: verifyChain(), records: cp },
+    fleetctl: { records: fl },
+    agents: blocks,
+  };
+}
+
+// One capture: gather, gzip, hand the bytes to the fleet lane to store. fleetctl owns the store
+// (it resolves the account and speaks az); the plane owns the verification. `backup put` is
+// append-only, so a second run on the same day reports the blob already exists and changes
+// nothing -- that is a success, not a failure.
+async function ledgerArchiveRun(actor, reason) {
+  const st = ledgerState();
+  const to = new Date().toISOString();
+  const from = st.lastCapturedAt ? new Date(Date.parse(st.lastCapturedAt) - LEDGER_OVERLAP_MS).toISOString() : null;
+  const day = to.slice(0, 10);
+  const blob = planeName() + '/' + day + '.json.gz';
+  let doc;
+  try { doc = await gatherLedgers({ from, to }, actor); }
+  catch (e) { audit({ action: 'ledger-archive', actor, reason, outcome: 'failed: gather: ' + String(e.message || e).slice(0, 160) }); return { ok: false, error: String(e.message || e) }; }
+  const counts = {
+    controlPlane: doc.controlPlane.records.length,
+    fleetctl: doc.fleetctl.records.length,
+    agents: doc.agents.map((a) => ({ name: a.name, rows: a.rows.length, reverified: a.reverified.ok, err: a.err })),
+  };
+  const tmp = path.join(os.tmpdir(), 'aegis-ledger-' + day + '-' + process.pid + '.json.gz');
+  try {
+    fs.writeFileSync(tmp, zlib.gzipSync(Buffer.from(JSON.stringify(doc)), { level: 9 }));
+    const bytes = fs.statSync(tmp).size;
+    const r = await runFleetctl(['backup', 'put', 'ledgers', tmp, '--as', blob]);
+    // Append-only: a blob already there for today means the invariant holds (an object exists,
+    // unchanged), whatever exit code the lane chose for saying so. Only a real failure fails.
+    const already = /already exists/i.test(r.out || '');
+    if (r.code !== 0 && !already) {
+      audit({ action: 'ledger-archive', actor, reason, blob, bytes, counts, outcome: 'failed: put exit ' + r.code + ': ' + panelClean(r.out).split('\n')[0] });
+      return { ok: false, error: panelClean(r.out) };
+    }
+    ledgerStateWrite({ lastCapturedAt: to, lastBlob: blob, lastBytes: bytes, lastCounts: counts, lastReason: reason });
+    audit({ action: 'ledger-archive', actor, reason, blob, bytes, counts, window: doc.window, outcome: already ? 'ok (already present for today)' : 'ok' });
+    return { ok: true, blob, bytes, counts, already, window: doc.window };
+  } catch (e) {
+    audit({ action: 'ledger-archive', actor, reason, blob, outcome: 'failed: ' + String(e.message || e).slice(0, 160) });
+    return { ok: false, error: String(e.message || e) };
+  } finally { try { fs.unlinkSync(tmp); } catch { /* gone */ } }
+}
+
+// Hourly tick, one capture per UTC day. Hourly rather than daily so a plane that was restarted
+// (or was down at the hour) still catches the day, and so the first capture happens minutes
+// after this lane ships rather than tomorrow.
+let LEDGER_TIMER = null;
+function ledgerArchiveStart() {
+  if (LEDGER_TIMER) return;
+  const tick = async () => {
+    const st = ledgerState();
+    const today = new Date().toISOString().slice(0, 10);
+    if (st.lastCapturedAt && String(st.lastCapturedAt).slice(0, 10) === today) return;
+    await ledgerArchiveRun({ id: 'aegis-timer', label: 'ledger archive timer', src: 'timer' }, 'timer');
+  };
+  setTimeout(() => { tick().catch(() => {}); }, 30000);
+  LEDGER_TIMER = setInterval(() => { tick().catch(() => {}); }, LEDGER_TICK_MS);
+  if (LEDGER_TIMER.unref) LEDGER_TIMER.unref();
+}
+
 // Printable audit export: one self-contained HTML document the browser prints to PDF.
 // Three ledgers, three sections, deliberately NOT merged -- the control plane records what was
 // commanded, fleetctl records what was attested against policy, each agent records what it did;
@@ -613,6 +725,16 @@ const server = http.createServer(async (req, res) => {
   // Ledger integrity: walks the chain and reports the FIRST break with its line and
   // seq. Read-only and cheap; this is what the audit-chain compliance control will
   // call so the control verifies the chain instead of merely asserting one exists.
+  // Ledger archive: state (what was last captured) and a manual capture. Read-only GET; the
+  // POST is the same act the timer performs, ledgered with the operator as its reason.
+  if (req.url === '/api/ledgers/state' && req.method === 'GET') {
+    return sendJson(res, { ok: true, enabled: !!FLEET_IAC_ROOT, plane: planeName(), ...ledgerState() });
+  }
+  if (req.url === '/api/ledgers/archive' && req.method === 'POST') {
+    if (!FLEET_IAC_ROOT) return sendJson(res, { ok: false, error: 'FLEET_IAC_ROOT unset — the fleet lane owns the store' }, 500);
+    const r = await ledgerArchiveRun(actorOf(req), 'operator');
+    return sendJson(res, r, r.ok ? 200 : 500);
+  }
   if (req.url === '/api/audit/verify' && req.method === 'GET') {
     return sendJson(res, { ok: true, chain: verifyChain() });
   }
@@ -1059,4 +1181,9 @@ cfcred.resolve(bootCfg, () =>
         log: (...a) => console.log('telegram:', ...a),
       });
     } else console.log('telegram: off (FLEET_IAC_ROOT unset — no policy, no allowlist)');
+    // Ledger archive: one verified capture per UTC day into the ledgers class. Needs the fleet
+    // lane (it owns the store), so a plane without FLEET_IAC_ROOT simply says so and archives
+    // nothing rather than failing quietly on a timer nobody watches.
+    if (FLEET_IAC_ROOT) { ledgerArchiveStart(); console.log('ledger archive: on (one capture per UTC day into ledgers/' + planeName() + '/)'); }
+    else console.log('ledger archive: off (FLEET_IAC_ROOT unset — the fleet lane owns the store)');
   }));
