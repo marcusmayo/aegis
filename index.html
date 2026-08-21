@@ -596,8 +596,9 @@ function protForm(name){ const on=PROTLIST.includes(name); const req='I approve 
     +'<button id="protgo-'+name+'" disabled onclick="protGo(\''+name+'\')" style="margin-top:4px">Attest + '+(on?'Unprotect':'Protect')+'</button>';
   const inp=$('#protattest-'+name); inp.oninput=function(){ const t=inp.value.trim(); const h=$('#prothint-'+name); const g=$('#protgo-'+name); const ok=t===req; if(g) g.disabled=!ok; if(!h) return; if(ok){ h.style.color='#22c55e'; h.textContent='\u2713 phrase matches \u2014 '+(on?'Unprotect':'Protect')+' enabled'; } else if(t){ h.style.color='#ef4444'; h.textContent='MISMATCH \u2014 type exactly: '+req; } else { h.style.color=''; h.textContent='type exactly: '+req; } }; }
 async function protGo(name){ const attest=($('#protattest-'+name)||{value:''}).value||''; const r=await(await fetch('/api/policy/protect-toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,attest})})).json();
-  if(r&&r.ok){ PROTLIST=r.protectedAgents||PROTLIST; for(const a of AGENTS) renderProt(a.name); }
-  else { const f=$('#protform-'+name); if(f){ f.style.display='block'; f.innerHTML='<div style="color:#ef4444;white-space:pre-wrap;font-size:var(--uifs,12px)">'+((r&&r.out)||(r&&r.error)||'REFUSED / ERROR')+'</div>'; } } }
+  if(r&&(r.ok||r.incomplete)){ PROTLIST=r.protectedAgents||PROTLIST; for(const a of AGENTS) renderProt(a.name); }
+  if(r&&r.incomplete){ const f=$('#protform-'+name); if(f){ f.style.display='block'; f.innerHTML='<div style="color:#eab308;white-space:pre-wrap;font-size:var(--uifs,12px)">INCOMPLETE \u2014 the policy gate applied and is enforcing; the Azure lock did not follow. The guard above shows policy, which is the source of truth; the resource lock is out of step until this is fixed.\n'+((r.out)||'')+'</div>'; } }
+  else if(!r||!r.ok){ const f=$('#protform-'+name); if(f){ f.style.display='block'; f.innerHTML='<div style="color:#ef4444;white-space:pre-wrap;font-size:var(--uifs,12px)">'+((r&&r.out)||(r&&r.error)||'REFUSED / ERROR')+'</div>'; } } }
 async function loadProtAgent(a){ try{ const r=await api(a.name,'GET','/protection'); if(r.status!==200) return; const j=JSON.parse(r.body); const should=PROTLIST.includes(a.name); const el=$('#protreq-'+a.name); if(el) el.textContent=j.requested?(' \u00B7 '+j.requested+' requested \u2192 complete ceremony here'):''; if(!!j.protected!==should){ api(a.name,'POST','/protection',{protected:should}); } }catch(e){} }
 let auditOpen=false;
 // The ledger is a live surface: an action taken in another pane must show up without
@@ -1110,7 +1111,7 @@ async function policySet(){
   try{
     const r=await (await fetch('/api/policy/set',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key,value,attest})})).json();
   auditPoke();
-    o.textContent=(r.ok?'OK\n':'REFUSED / ERROR\n')+(r.out||'');
+    o.textContent=(r.ok?'OK\n':(r.incomplete?'INCOMPLETE \u2014 the policy value applied and is enforcing; its Azure mirror did not\n':'REFUSED / ERROR\n'))+(r.out||'');
   }catch(err){ o.textContent='set failed: '+err; }
   document.getElementById('polVal').value='';
   document.getElementById('polAttest').value='';

@@ -416,7 +416,7 @@ async function runFleetctl(args) {
     let so = '', se = '';
     child.stdout.on('data', (d) => { so += d; });
     child.stderr.on('data', (d) => { se += d; });
-    child.on('error', (e) => resolve({ code: 1, out: 'spawn error: ' + e.message }));
+    child.on('error', (e) => resolve({ code: 4, out: 'spawn error: ' + e.message }));
     child.on('close', (code) => resolve({ code: code == null ? 1 : code, out: so + (se ? (so ? '\n' : '') + se : '') }));
   });
 }
@@ -473,6 +473,17 @@ function streamFleetctl(res, args, extraEnv, onDone) {
 // Panel-facing cleanup for plan output: the panel has its own Execute UI, so strip the
 // CLI "To EXECUTE … --go" hint, and relativize machine-absolute paths (FLEET_IAC_ROOT
 // and the temp dir) so the panel never shows a non-portable local path.
+// fleetctl's exit contract on the policy lane: 0 the control is fully applied; 1 the policy gate
+// applied and is enforcing but its Azure mirror (lock, budget object) did not -- a half-applied
+// control, whose honest word is incomplete, not refused, because something did change; anything
+// else refused or errored and changed nothing. The plane records the same verdict the fleetctl
+// ledger holds, so the two chains cannot disagree about what happened.
+function policyVerdict(code) {
+  if (code === 0) return 'ok';
+  if (code === 1) return 'incomplete: policy applied, azure mirror not applied -- see the fleetctl policy ledger';
+  return 'refused-or-error: exit ' + code;
+}
+
 function panelClean(out) {
   let s = String(out || '');
   for (const base of [FLEET_IAC_ROOT, os.tmpdir()]) {
@@ -519,8 +530,8 @@ const server = http.createServer(async (req, res) => {
     const value = String(b.value || '').trim();
     const attest = String(b.attest || '');
     const r = await runFleetctl(['policy', 'set', key, value, '--attest', attest]);
-    audit({ action: 'policy-set', key, value, actor: actorOf(req), outcome: r.code === 0 ? 'ok' : 'refused-or-error', via: 'panel' });
-    return sendJson(res, { ok: r.code === 0, code: r.code, out: panelClean(r.out) });
+    audit({ action: 'policy-set', key, value, actor: actorOf(req), outcome: policyVerdict(r.code), via: 'panel' });
+    return sendJson(res, { ok: r.code === 0, incomplete: r.code === 1, code: r.code, out: panelClean(r.out) });
   }
   // Merged attestation timeline: Aegis actions + the fleetctl policy ledger, newest first.
   if (req.url === '/api/attestations' && req.method === 'GET') {
@@ -763,14 +774,14 @@ const server = http.createServer(async (req, res) => {
     let list; try { list = JSON.parse(cur.out || '{}').protectedAgents || []; } catch { return sendJson(res, { ok: false, error: 'cannot read policy (fleetctl policy show --json failed)' }, 500); }
     const on = list.includes(name);
     const r = await runFleetctl(['policy', on ? 'unprotect' : 'protect', name, '--attest', attest]);
-    audit({ action: 'protect-toggle', name, verb: on ? 'unprotect' : 'protect', actor: actorOf(req), outcome: r.code === 0 ? 'ok' : 'exit ' + r.code });
+    audit({ action: 'protect-toggle', name, verb: on ? 'unprotect' : 'protect', actor: actorOf(req), outcome: policyVerdict(r.code) });
     let next = list;
-    if (r.code === 0) {
+    if (r.code === 0 || r.code === 1) {
       const rr = await runFleetctl(['policy', 'show', '--json']);
       try { next = JSON.parse(rr.out || '{}').protectedAgents || list; } catch { /* keep prior */ }
       const agent = agentByName(name); if (agent) { try { callAgent(agent, 'POST', '/protection', { protected: !on }, actorOf(req)); } catch { /* unreachable */ } }
     }
-    return sendJson(res, { ok: r.code === 0, out: panelClean(r.out), protectedAgents: next });
+    return sendJson(res, { ok: r.code === 0, incomplete: r.code === 1, out: panelClean(r.out), protectedAgents: next });
   }
   // Which control plane is this? Two planes exist (hosted primary, workstation break-glass)
   // and an operator must be able to read which one they are commanding: same panel, same
