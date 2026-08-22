@@ -223,6 +223,35 @@ function repoState(dir) {
   const dirty = (g(['status', '--porcelain', '--untracked-files=no']) || '').split('\n').filter(Boolean).length;
   return { present: true, dir, fetched, branch, local, remote, dirty, pending: fetched && local !== '?' && remote !== '?' && local !== remote };
 }
+// The commits this PROCESS is running, captured once at start. index.html is read from disk on
+// every request while aegis.js runs from memory, so a plane that pulled but never restarted
+// serves the NEW panel from the NEW checkout while executing the OLD server code -- and it looks
+// healthy from every angle: unit active, panel served, git clean, "up to date". Live: the update
+// button posted the one-click body the new UI sends while the old process still demanded an
+// attestation, so the panel refused with nowhere to type the phrase, and every attested action
+// taken through that plane had been running pre-fix lanes for hours. A checkout is not a
+// deployment until the unit restarts, so the plane states both and says when they differ.
+const BOOT = (() => {
+  const at = (dir) => {
+    if (!dir) return null;
+    const r = spawnSync('git', ['-C', dir, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' });
+    return r.status === 0 ? (r.stdout || '').trim() : null;
+  };
+  return { aegis: at(__dirname), fleet: at(FLEET_IAC_ROOT), at: new Date().toISOString() };
+})();
+
+// null when either side is unknown -- an unreadable checkout is not evidence of a skew.
+function planeSkew() {
+  const s = planeRepoState();
+  const out = [];
+  for (const [k, label] of [['aegis', 'aegis'], ['fleet', 'agent-fleet-iac']]) {
+    const disk = s[k] && s[k].local;
+    const running = BOOT[k];
+    if (disk && running && disk !== running) out.push(`${label}: running ${running}, checkout ${disk}`);
+  }
+  return { skewed: out.length > 0, detail: out, boot: BOOT, checkout: repoHeads(s) };
+}
+
 function planeRepoState() {
   const unit = spawnSync('systemctl', ['is-active', 'aegis'], { encoding: 'utf8' });
   return { aegis: repoState(__dirname), fleet: repoState(FLEET_IAC_ROOT), unit: (unit.stdout || '').trim() || 'unknown' };
@@ -981,7 +1010,9 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.url === '/api/plane' && req.method === 'GET') {
     const ts = telegram.state;
+    const skew = planeSkew();
     return sendJson(res, { plane: planeName(), bind: HOST + ':' + PORT, fleetctl: !!FLEET_IAC_ROOT, cf: cfEnvProblem() ? 'not ready' : 'ok',
+      running: skew.boot, checkout: skew.checkout, skewed: skew.skewed, skewDetail: skew.detail, bootedAt: BOOT.at,
       telegram: ts.on ? 'on' : ('off' + (ts.reason ? ' (' + ts.reason + ')' : '')),
       // live counters: is it polling, where is the cursor, what failed last, and which chats
       // knocked without being allowlisted (the onboarding read-out -- your own id appears here)

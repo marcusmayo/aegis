@@ -235,6 +235,7 @@
   <div class="tool-content" id="tc-adv">
     <h3 style="margin:4px 0 8px">Update plane <span class="muted">(this control plane's own code)</span></h3>
     <div class="muted" style="font-size:var(--uifs,12px);margin-bottom:6px">Moves this plane's two checkouts (aegis, agent-fleet-iac) to their pushed HEADs, fast-forward only, then restarts the unit. Attested and ledgered with before/after commits &mdash; it changes the code that runs every other attested lane. Anything typed while the plane restarts is dropped; the panel reconnects on its own.</div>
+    <div id="puSkew" style="display:none;margin:6px 0;padding:6px 8px;border:1px solid #7f1d1d;background:#1c1c1c;color:#ef4444;font-size:var(--uifs,12px);white-space:pre-wrap"></div>
     <div class="tool-row"><button onclick="planeUpdatePlan()">Check for updates</button></div>
     <pre class="planout" id="puOut" style="min-height:60px"><span class="muted">heads appear here&hellip;</span></pre>
     <div class="muted" style="font-size:var(--uifs,12px);margin-top:4px" id="puHint">check for updates first</div>
@@ -489,7 +490,23 @@ function puArm(j){
   } else { b.textContent='Update plane'; h.style.color=''; h.textContent='nothing pending'; }
 }
 function puLine(label,r){ if(!r||!r.present) return label+': checkout not found'; return label+': '+r.local+' \u2192 '+(r.fetched?r.remote:'? (fetch failed)')+'  '+(r.pending?'UPDATE PENDING':'up to date')+(r.dirty?'  \u26a0 '+r.dirty+' tracked change(s) \u2014 a pull may refuse':''); }
+// A checkout is not a deployment. If the process is running commits older than the ones on disk,
+// every lane on this plane is the old code however green the heads look -- and "up to date" is
+// then the most misleading line on the page. Checked on every plan, and on load.
+async function planeSkewCheck(){
+  const el=$('#puSkew'); if(!el) return;
+  try{
+    const j=await (await fetch('/api/plane',{cache:'no-store'})).json();
+    if(j&&j.skewed){
+      el.style.display='block';
+      el.textContent='PLANE IS RUNNING OLD CODE \u2014 the checkout moved but the unit never restarted:\n  '
+        +(j.skewDetail||[]).join('\n  ')
+        +'\nEvery lane here is the code from '+(j.bootedAt||'process start').slice(0,19)+'. Restart the unit before trusting any attested action.';
+    } else { el.style.display='none'; el.textContent=''; }
+  }catch(e){ /* the banner is an aid, never a gate */ }
+}
 async function planeUpdatePlan(){
+  planeSkewCheck();
   const out=$('#puOut'); out.textContent='fetching\u2026';
   let j=null; try{ j=await (await fetch('/api/plane/update/plan')).json(); }catch(e){ out.textContent='plan failed: '+e; return; }
   const pend=!!((j.aegis&&j.aegis.pending)||(j.fleet&&j.fleet.pending));
@@ -910,6 +927,7 @@ function openTool(name){
   ensurePanelGrips(panel, side);
   rail.querySelectorAll('.tool-tab').forEach(t=>t.classList.remove('active'));
   const tab=rail.querySelector('.tool-tab.'+name); if(tab) tab.classList.add('active');
+  if(name==='adv') planeSkewCheck();
   if(name==='persona') personaLoad();
   if(name==='policy') policyLoad();
   if(name==='a2a') a2aLoad();
