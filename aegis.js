@@ -205,6 +205,10 @@ const { spawnSync, spawn } = require('child_process');
 const FLEET_IAC_ROOT = (function () {
   if (process.env.FLEET_IAC_ROOT) return process.env.FLEET_IAC_ROOT;
   try { const cfg = JSON.parse(fs.readFileSync(CFG, 'utf8')); if (cfg.fleetIacRoot) return cfg.fleetIacRoot; } catch { /* no config yet */ }
+  // The fleet repo was renamed to `fleet`; a fresh workstation clones it under that name, while
+  // machines keep their historical checkout dirs. Try the new sibling first, the old one second.
+  const sibNew = path.join(__dirname, '..', 'fleet');
+  if (fs.existsSync(path.join(sibNew, 'provision', 'bin', 'fleetctl.js'))) return sibNew;
   const sib = path.join(__dirname, '..', 'agent-fleet-iac');
   try { if (fs.existsSync(path.join(sib, 'provision', 'bin', 'fleetctl.js'))) return sib; } catch { /* ignore */ }
   return '';
