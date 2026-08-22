@@ -152,7 +152,17 @@ function start(deps) {
     const c = parseCommand(text);
     const actor = { src: 'telegram', id: chatId };
     const agents = deps.loadAgents();
-    const cur = sticky[chatId] || '';
+    // A lock is a pointer to a registry entry, so it dies with the entry: after a decommission
+    // /agents still said "locked to <gone agent>" and every plain message went nowhere with a
+    // confusing error. Clear it here, once, and say so -- with three agents in the lane a stale
+    // lock stops being cosmetic and starts sending work at a name that no longer exists.
+    let cur = sticky[chatId] || '';
+    if (cur && !deps.agentByName(cur)) {
+      delete sticky[chatId]; saveSticky();
+      deps.audit({ event: 'telegram-lock-cleared', agent: cur, actor, outcome: 'ok (agent left the registry)' });
+      say(chatId, cur + ' is no longer in the fleet — this chat is unlocked. /agents to see what is left.');
+      cur = '';
+    }
     if (c.cmd === 'start' || c.cmd === 'help') return say(chatId, help());
     if (c.cmd === 'agents') return say(chatId, (agents.length ? agents.map((a) => (a.name === cur ? '▸ ' : '  ') + a.name + '  (' + (a.profile || '?') + ')').join('\n') : 'no agents registered') + (cur ? '\n\nlocked to: ' + cur : '\n\nno target locked — /use <agent>'));
     if (c.cmd === 'use') {

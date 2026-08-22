@@ -1,0 +1,8 @@
+# The panel ships LF. A CRLF checkout would change every line of aegis.js and index.html on the
+# next commit, and the plane deploys by pulling this repo onto a Linux VM -- shell here is not
+# hypothetical. Same rule the agent repos carry.
+* text=auto eol=lf
+*.sh text eol=lf
+*.js text eol=lf
+*.html text eol=lf
+*.json text eol=lf
