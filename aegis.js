@@ -423,6 +423,15 @@ function ledgerArchiveStart() {
 // verifiable history that does not exist. Every section states its own verification result.
 const escapeHtml = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function who(a) { if (!a) return ''; if (typeof a === 'string') return a; return (a.label || a.id || '?') + (a.src ? ' [' + a.src + ']' : ''); }
+// Agent chains changed vocabulary over time: older keel records name the thing that happened in
+// `action`, newer ones in `event`, and a few carry `op`. The export's agent table read only
+// `event`, so every pre-change record printed with an empty first column -- the rows were there,
+// hash-verified and continuous, saying nothing about what they were. An audit document whose
+// oldest entries are blank is worse than one that admits a gap, because it looks complete.
+// Same for the outcome column, which older records call `status` or `result`.
+const evOf = (x) => x.event || x.action || x.op || '';
+const outOf = (x) => x.outcome || x.status || x.result || '';
+
 // Re-verify agent rows the plane received (newest-first raw chain entries): each hash is
 // recomputed exactly as the agent computed it (sha256 of prev_hash + the entry without its hash,
 // in the entry's own key order, which JSON preserves), and each entry's prev_hash must equal the
@@ -492,7 +501,7 @@ async function buildAuditExport(actor, range) {
   h += '<button class="noprint" onclick="window.print()" style="margin:8px 0;padding:6px 14px">Print / save as PDF</button>';
   // 1 control plane
   h += '<h2 class="first">1. Control plane ledger — aegis-audit.jsonl</h2><div class="meta">chain: ' + (chain.ok ? '<span class="ok">VERIFIED</span>' : '<span class="bad">BROKEN' + (chain.broken ? ' at seq ' + escapeHtml(chain.broken.seq) + ' — ' + escapeHtml(chain.broken.reason) : '') + '</span>') + ' · ' + escapeHtml(chain.checked || 0) + ' chained' + (chain.unchained ? ' · ' + escapeHtml(chain.unchained) + ' pre-chain' : '') + ' · ' + cp.length + ' in ' + escapeHtml(rangeText) + ' (' + cpAll.length + ' held)</div>';
-  h += '<table>' + th(['seq', 'ts', 'action / event', 'agent', 'outcome / status', 'actor', 'detail']) + cp.map((x) => td([x.seq !== undefined ? '#' + x.seq : '', x.ts, x.action || x.event || '', x.name || x.agent || '', x.outcome || x.status || '', who(x.actor), [x.phrase ? '«' + x.phrase + '»' : '', x.key ? 'key ' + x.key : '', x.from && x.to && typeof x.from === 'string' ? x.from + '>' + x.to : '', x.mode ? 'mode ' + x.mode : '', x.via ? 'via ' + x.via : ''].filter(Boolean).join(' · ')])).join('') + '</table>';
+  h += '<table>' + th(['seq', 'ts', 'action / event', 'agent', 'outcome / status', 'actor', 'detail']) + cp.map((x) => td([x.seq !== undefined ? '#' + x.seq : '', x.ts, evOf(x), x.name || x.agent || '', outOf(x), who(x.actor), [x.phrase ? '«' + x.phrase + '»' : '', x.key ? 'key ' + x.key : '', x.from && x.to && typeof x.from === 'string' ? x.from + '>' + x.to : '', x.mode ? 'mode ' + x.mode : '', x.via ? 'via ' + x.via : ''].filter(Boolean).join(' · ')])).join('') + '</table>';
   // 2 fleetctl
   h += '<h2>2. fleetctl attested acts — policy-audit.jsonl</h2><div class="meta">' + fl.length + ' records · files: ' + escapeHtml([...new Set(fl.map((r) => r._file))].join(', ') || 'none') + ' · append-only, not hash-chained (attested acts against policy; the control plane\'s chain above records who commanded them)</div>';
   h += '<table>' + th(['ts', 'action', 'key / name', 'from → to', 'outcome', 'actor', 'attestation']) + fl.map((x) => td([x.ts, x.action || '', [x.key, x.name].filter(Boolean).join(' / '), (x.from !== undefined || x.to !== undefined) ? (JSON.stringify(x.from) + ' → ' + JSON.stringify(x.to)) : (x.role ? x.role + (x.scope ? ' @ ' + x.scope : '') : ''), x.outcome || '', x.actor || '', x.phrase || ''])).join('') + '</table>';
@@ -503,7 +512,7 @@ async function buildAuditExport(actor, range) {
       + ' · ' + b.rows.length + ' records in ' + escapeHtml(rangeText) + (b.total !== null && b.total !== undefined ? ' of ' + b.total + ' held' + (b.oldestTs ? ' since ' + escapeHtml(b.oldestTs) : '') : '') + ' · ' + b.pages + ' page' + (b.pages === 1 ? '' : 's') + ' of 500'
       + ' · plane re-verification of what it received: ' + (b.rows.length ? (b.re.ok ? '<span class="ok">OK (' + b.re.checked + ' hashes + continuity)</span>' : '<span class="bad">BROKEN at ' + escapeHtml(b.re.brokenAt) + ' — ' + escapeHtml(b.re.why) + '</span>') : 'nothing to check')
       + ' (this document is a copy; the chain stays with the agent)</div>';
-    h += '<table>' + th(['ts', 'event', 'route', 'rc', 'duration', 'actor', 'on behalf of', 'detail']) + b.rows.map((x) => td([x.ts, x.event || '', x.route || '', x.exitCode !== undefined && x.exitCode !== null ? x.exitCode : '', x.durationMs !== undefined ? x.durationMs + 'ms' : '', who(x.actor), x.onBehalfOf ? who(x.onBehalfOf) : '', [x.name || '', x.job || '', x.jobId || '', x.protected !== undefined ? 'protected=' + x.protected : ''].filter(Boolean).join(' · ')])).join('') + '</table>';
+    h += '<table>' + th(['ts', 'event', 'outcome', 'route', 'rc', 'duration', 'actor', 'on behalf of', 'detail']) + b.rows.map((x) => td([x.ts, evOf(x), outOf(x), x.route || '', x.exitCode !== undefined && x.exitCode !== null ? x.exitCode : '', x.durationMs !== undefined ? x.durationMs + 'ms' : '', who(x.actor), x.onBehalfOf ? who(x.onBehalfOf) : '', [x.name || '', x.job || '', x.jobId || '', x.protected !== undefined ? 'protected=' + x.protected : ''].filter(Boolean).join(' · ')])).join('') + '</table>';
   }
   h += '<div class="meta" style="margin-top:18px">end of export · ' + escapeHtml(gen) + '</div></body></html>';
   return h;
