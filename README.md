@@ -1,5 +1,7 @@
 # Aegis
 
+![The Aegis panel — fleet cards, a target-locked console, and the attested lanes](docs/hero.png)
+
 Aegis is the control plane for a small fleet of AI agents. It is one Node
 process and one HTML page — no build step, no framework — that gives an
 operator a single panel for every agent's health, model, guard rails, intake
