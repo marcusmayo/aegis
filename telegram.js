@@ -191,10 +191,13 @@ function start(deps) {
       deps.audit({ event: 'telegram-web', agent: t.name, actor, enabled: enable });
       const r = await agentJson(t, 'POST', '/web-access', { enabled: enable }, chatId);
       if (r.status !== 200) return say(chatId, 'web toggle failed: HTTP ' + r.status + (r.raw ? ' ' + r.raw : ''));
-      let note = '';
-      // web ON on a model that cannot search: switch to the first web-capable model, as the panel does
-      if (enable) { const mi = await modelInfo(t, chatId); if (mi) { const webs = mi.options.filter((o) => o.web); if (webs.length && !webs.some((o) => o.slug === mi.active)) { const w = webs[0]; const rr = await agentJson(t, 'POST', '/model/select', { slug: w.slug }, chatId); note = rr.status === 200 ? '\nmodel switched to ' + (w.label || w.slug) + ' (web-capable)' : '\n(active model is not web-capable and the switch failed: HTTP ' + rr.status + ' — /model to pick one)'; deps.audit({ event: 'telegram-model', agent: t.name, actor, slug: w.slug, reason: 'web-on' }); } } }
-      return say(chatId, t.name + ' web: ' + (enable ? 'ON' : 'OFF') + note);
+      // The toggle endpoint is AUTHORITATIVE now: it captures the model on a forced switch and
+      // restores it on disable, server-side. This lane used to duplicate the switch client-side
+      // and said nothing on restore -- the same tab-local pattern the webchat shed. The agent's
+      // own message carries what actually happened ("switched to X; your model comes back" /
+      // "restored Y"), so relay it instead of narrating a second, possibly disagreeing, version.
+      const msg = r.json && r.json.message ? r.json.message : ('web ' + (enable ? 'ON' : 'OFF'));
+      return say(chatId, t.name + ' — ' + msg);
     }
     if (c.cmd === 'model' || c.cmd === 'models') {
       const t = needTarget(); if (!t) return;
