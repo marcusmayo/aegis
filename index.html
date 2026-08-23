@@ -36,7 +36,13 @@
   header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px}
   header h1{font-size:18px;margin:0;color:#c9a227}
   header .sub{color:var(--dim);font-size:var(--uifs,12px)}
-  header button{margin-left:auto;background:#1e1e1e;border:1px solid var(--line);color:#aaa;border-radius:6px;padding:6px 14px;cursor:pointer}
+  /* margin-left:auto on EVERY header button splits the free space between them, which is how
+     Refresh fleet ended up marooned mid-header once a second button existed. Only the first
+     one pushes; the rest sit beside it. They scale off --uifs like the rest of the panel --
+     the A-/A+ control itself stays fixed, or it would move out from under the cursor as you
+     click it. */
+  header button{margin-left:auto;background:#1e1e1e;border:1px solid var(--line);color:#aaa;border-radius:6px;padding:6px 14px;cursor:pointer;font-size:var(--uifs,12px);line-height:1.4}
+  header button~button{margin-left:8px}
   .wrap{padding:20px 52px 20px 52px;display:grid;grid-template-columns:1fr;gap:20px}   /* both rails are 40px; open panels widen the padding on their side (relayout) so nothing is covered */
   .wrap>section{min-width:0}   /* grid items default to min-width:auto -- a child with a px width would pin the track wider than the viewport and the section could never shrink under a pushed panel */
   h2{font-size:calc(var(--uifs,12px) + 1px);text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:0 0 10px}
