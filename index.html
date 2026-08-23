@@ -43,7 +43,7 @@
      click it. */
   header button{margin-left:auto;background:#1e1e1e;border:1px solid var(--line);color:#aaa;border-radius:6px;padding:6px 14px;cursor:pointer;font-size:var(--uifs,12px);line-height:1.4}
   header button~button{margin-left:8px}
-  .wrap{padding:20px 52px 20px 52px;display:grid;grid-template-columns:1fr;gap:20px}   /* both rails are 40px; open panels widen the padding on their side (relayout) so nothing is covered */
+  .wrap{padding:20px calc(var(--rail-w,40px) + 12px);display:grid;grid-template-columns:1fr;gap:20px}   /* the rail MEASURES itself into --rail-w (relayout), because its width now follows --uifs; open panels widen the padding on their side so nothing is covered */
   .wrap>section{min-width:0}   /* grid items default to min-width:auto -- a child with a px width would pin the track wider than the viewport and the section could never shrink under a pushed panel */
   h2{font-size:calc(var(--uifs,12px) + 1px);text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:0 0 10px}
   .fleet{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}
@@ -88,7 +88,7 @@
   .pchip{width:24px;height:24px;border-radius:50%;cursor:pointer;border:2px solid #0d0d0d;box-shadow:0 0 0 1px #444}
   .raw{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
   .raw input.path{flex:1;min-width:160px}
-  button.send{background:#c9a227;border:0;border-radius:6px;color:#0d0d0d;font-weight:600;padding:7px 16px;cursor:pointer}
+  button.send{background:#c9a227;border:0;border-radius:6px;color:#0d0d0d;font-weight:600;padding:.55em 1.2em;cursor:pointer;font-size:var(--uifs,12px);line-height:1.4}
   .log{margin-top:14px;background:#0a0a0a;border:1px solid var(--line);border-radius:6px;padding:10px;font-family:monospace;font-size:var(--uifs,12px);height:56vh;min-height:140px;min-width:340px;max-width:100%;resize:both;overflow:auto}
   .log .line{padding:3px 0;border-bottom:1px solid #161616;white-space:pre-wrap;word-break:break-word}
   .log .agent{font-weight:700}
@@ -96,10 +96,10 @@
   .muted{color:var(--dim)}
   .planout{background:#0c0c0c;border:1px solid #1c1c1c;border-radius:6px;padding:10px;margin-top:8px;white-space:pre-wrap;word-break:break-word;min-height:80px;max-height:75vh;resize:vertical;overflow:auto;font:var(--uifs,12px)/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#cfcfcf}
   /* Left tool rail: 3 stacked tabs (Advanced / Provisioning / Decommission) sharing one panel */
-  #toolRail{position:fixed;left:0;top:64px;z-index:61;display:flex;flex-direction:column;gap:6px}
-  #toolRailR{position:fixed;right:0;top:64px;z-index:61;display:flex;flex-direction:column;gap:6px}
+  #toolRail{position:fixed;left:0;top:64px;z-index:61;display:flex;flex-direction:column;gap:6px;max-height:calc(100vh - 76px);overflow-y:auto;overflow-x:hidden;scrollbar-width:none}
+  #toolRailR{position:fixed;right:0;top:64px;z-index:61;display:flex;flex-direction:column;gap:6px;max-height:calc(100vh - 76px);overflow-y:auto;overflow-x:hidden;scrollbar-width:none}
   #toolRailR .tool-tab{border-radius:6px 0 0 6px;box-shadow:-2px 2px 10px rgba(0,0,0,.4)}
-  .tool-tab{writing-mode:vertical-rl;border:none;cursor:pointer;padding:15px 9px;font-weight:700;letter-spacing:2px;border-radius:0 6px 6px 0;color:#fff;box-shadow:2px 2px 10px rgba(0,0,0,.4)}
+  .tool-tab{writing-mode:vertical-rl;border:none;cursor:pointer;padding:1.15em .72em;font-weight:700;letter-spacing:.16em;border-radius:0 6px 6px 0;color:#fff;box-shadow:2px 2px 10px rgba(0,0,0,.4);font-size:var(--uifs,12px);line-height:1.2;flex-shrink:0}
   .tool-tab.adv{background:#3b82f6}
   .tool-tab.prov{background:#c9a227;color:#111}
   .tool-tab.dec{background:#ef4444}
@@ -113,11 +113,11 @@
   .aud-pane{border:1px solid #232323;border-radius:8px;padding:8px;margin-top:8px;background:#0b0b0b}
   .aud-pane h4{margin:0 0 2px;font:700 12px monospace}
   .tool-tab.active{outline:2px solid #fff;outline-offset:-3px}
-  #toolPanel{position:fixed;left:40px;top:64px;z-index:60;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-left:none;border-radius:0 8px 8px 0;max-height:84vh;overflow-y:auto;box-shadow:6px 0 18px rgba(0,0,0,.45);box-sizing:border-box}
+  #toolPanel{position:fixed;left:var(--rail-w,40px);top:64px;z-index:60;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-left:none;border-radius:0 8px 8px 0;max-height:84vh;overflow-y:auto;box-shadow:6px 0 18px rgba(0,0,0,.45);box-sizing:border-box}
   #toolPanel.open{width:440px;opacity:1;padding:14px}
   /* Right-hand panel: the technical tabs (Advanced, Policy, Audit, Provisioning, Decommission). Same panel
      mechanics mirrored; the operator-facing tabs (Persona, Relay, Migrate, Cheatsheet) stay on the left. */
-  #toolPanelR{position:fixed;right:40px;top:64px;z-index:60;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-right:none;border-radius:8px 0 0 8px;max-height:84vh;overflow-y:auto;box-shadow:-6px 0 18px rgba(0,0,0,.45);box-sizing:border-box}
+  #toolPanelR{position:fixed;right:var(--rail-w,40px);top:64px;z-index:60;width:0;opacity:0;overflow:hidden;transition:width .2s ease,opacity .16s ease;background:#0d0d0d;border:1px solid #1f1f1f;border-right:none;border-radius:8px 0 0 8px;max-height:84vh;overflow-y:auto;box-shadow:-6px 0 18px rgba(0,0,0,.45);box-sizing:border-box}
   #toolPanelR.open{width:520px;opacity:1;padding:14px}
   #toolGripW,#toolRGripW,#toolGripH,#toolRGripH{transition:background .12s}
   .card.dragging{opacity:.45;outline:2px dashed #666;outline-offset:2px}
@@ -146,14 +146,14 @@
   .webtog{border:none;border-radius:5px;padding:2px 12px;font-weight:700;cursor:pointer;font-size:calc(var(--uifs,12px) - 1px);font-family:monospace}
   .webtog.on{background:#22c55e;color:#052e13}
   .webtog.off{background:#333;color:#aaa}
-  .fontbtn{background:#1a1a1a;border:1px solid #333;color:#bbb;border-radius:4px;padding:1px 8px;cursor:pointer;font-size:11px}
+  .fontbtn{background:#1a1a1a;border:1px solid #333;color:#bbb;border-radius:4px;padding:.15em .7em;cursor:pointer;font-size:calc(var(--uifs,12px) - 1px);line-height:1.5}
   .fontbtn:hover{background:#252525}
   .dec-go{background:#ef4444;color:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:700;cursor:pointer}
   .dec-go:disabled{background:#3a1c1c;color:#7a5a5a;cursor:not-allowed}
   .agent-link{color:#6ea8ff;text-decoration:none;font-size:var(--uifs,12px)}
   #target{font-size:var(--uifs,12px)}
   .console .lock{font-size:var(--uifs,12px)}
-  .fontctl{margin-left:12px;color:#888;font-size:11px;display:inline-flex;gap:6px;align-items:center}
+  .fontctl{margin-left:12px;color:#888;font-size:calc(var(--uifs,12px) - 1px);display:inline-flex;gap:6px;align-items:center}
   .mini-target{background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:5px;padding:1px 6px;font-family:monospace;font-size:var(--uifs,12px);text-transform:none;letter-spacing:normal;margin-left:6px}
   .mini-host{color:#6ea8ff;text-decoration:none;font-size:calc(var(--uifs,12px) - 1px);font-family:monospace;text-transform:none;letter-spacing:normal;margin-left:8px;font-weight:400}
   .agent-link:hover{text-decoration:underline}
@@ -437,6 +437,8 @@ function logFont(d){
   // --uifs CSS variable. Side tool panels keep their own fixed sizing on purpose.
   document.documentElement.style.setProperty('--uifs', logFontSize + 'px');
   try{ localStorage.setItem('aegisFont', String(logFontSize)); }catch(e){}
+  // the rail grew or shrank with the text: re-measure so the panels and gutters follow it
+  try{ relayout(); }catch(e){}
 }
 // --- Panel navigation: collapsible fleet cards + console chrome, persisted log size/font. ---
 function toggleFleetMini(force){
@@ -765,11 +767,16 @@ function relayout(){
   const w=document.querySelector('.wrap'); if(!w) return;
   const vw=document.documentElement.clientWidth||window.innerWidth;
   const L=document.getElementById('toolPanel'), R=document.getElementById('toolPanelR');
-  let left=40, right=40;
+  // The rail's width follows --uifs now, so it is measured rather than assumed, and published
+  // as --rail-w for the panels and the page gutters to sit against.
+  const railEl=document.getElementById('toolRail'), railElR=document.getElementById('toolRailR');
+  const rw=Math.max(railEl?railEl.offsetWidth:0, railElR?railElR.offsetWidth:0) || 40;
+  document.documentElement.style.setProperty('--rail-w', rw+'px');
+  let left=rw, right=rw;
   // A rect is only trusted once the panel has a rendered width (mid-transition it is still
   // narrow, and an unlaid-out element reports zeros); until then the intended width stands in.
-  if(L&&L.classList.contains('open')){ const r=L.getBoundingClientRect(); left=Math.max(40+panelWidth(L,440), r.width>0?Math.round(r.right):0); }
-  if(R&&R.classList.contains('open')){ const r=R.getBoundingClientRect(); right=Math.max(40+panelWidth(R,520), r.width>0?Math.round(vw-r.left):0); }
+  if(L&&L.classList.contains('open')){ const r=L.getBoundingClientRect(); left=Math.max(rw+panelWidth(L,440), r.width>0?Math.round(r.right):0); }
+  if(R&&R.classList.contains('open')){ const r=R.getBoundingClientRect(); right=Math.max(rw+panelWidth(R,520), r.width>0?Math.round(vw-r.left):0); }
   w.style.paddingLeft=(left+12)+'px'; w.style.paddingRight=(right+12)+'px';
 }
 window.addEventListener('resize', relayout);
