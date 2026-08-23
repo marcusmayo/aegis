@@ -1,6 +1,36 @@
 <!doctype html><html><head><meta charset="utf-8"><title>Aegis - Fleet Control</title>
 <style>
-  :root{--bg:#0d0d0d;--panel:#161616;--line:#2a2a2a;--dim:#888;--text:#e8e8e8}
+  :root{--bg:#0d0d0d;--panel:#161616;--line:#2a2a2a;--dim:#888;--text:#e8e8e8;
+    /* background lane: all defaults are the pre-background look, so an agent with no
+       image uploaded renders byte-identically to before. */
+    --bg-img:none;--bg-size:cover;--bg-pos:50% 50%;
+    --inlay-img:none;--inlay-op:0;--inlay-rot:-6deg;--inlay-scale:1.4;
+    --panel-a:1}
+  /* The page image sits behind everything, fixed so it does not scroll with the log. */
+  body.hasbg{background-image:var(--bg-img);background-size:var(--bg-size);
+    background-position:var(--bg-pos);background-repeat:no-repeat;background-attachment:fixed}
+  /* Panels ghost the inlay. A pseudo-element rather than a second background layer, because a
+     background layer cannot be rotated -- and inset:-30% keeps the corners covered when it is. */
+  body.hasbg .card,body.hasbg .console,body.hasbg .log{position:relative;overflow:hidden;
+    background-color:rgba(22,22,22,var(--panel-a))}
+  body.hasbg .card::before,body.hasbg .console::before,body.hasbg .log::before{
+    content:'';position:absolute;inset:-30%;background-image:var(--inlay-img);
+    background-size:cover;background-position:center;opacity:var(--inlay-op);
+    transform:rotate(var(--inlay-rot)) scale(var(--inlay-scale));pointer-events:none}
+  body.hasbg .card>*,body.hasbg .console>*,body.hasbg .log>*{position:relative;z-index:1}
+  /* Light scene -> dark panel text. Measured, not guessed (see the luminance note in aegis.js). */
+  body.hasbg.lightbg{--text:#0a0a0a;--dim:#3a3a3a}
+  body.hasbg.lightbg .log{color:#0a0a0a}
+  /* the control itself */
+  #bgPanel{display:none;margin:10px 0;padding:12px 14px;background:var(--panel);
+    border:1px solid var(--line);border-radius:8px;font-size:12px}
+  #bgPanel.on{display:block}
+  #bgPanel .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:6px 0}
+  #bgPanel label{color:var(--dim);min-width:104px}
+  #bgPanel .hint{color:var(--dim);font-size:11px;line-height:1.6}
+  #bgPanel input[type=range]{width:150px}
+  #bgPanel button.rst{background:#2a1414;border:1px solid #5a2020;color:#e0a0a0;
+    border-radius:5px;padding:4px 10px;cursor:pointer;font:inherit}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;font-size:14px}
   header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px}
@@ -130,9 +160,34 @@
 <header>
   <h1>&#9678; Aegis</h1><span class="sub" id="planeSub" title="which control plane you are commanding ($AEGIS_PLANE, else host name)">fleet control plane &middot; &hellip;</span>
   <button onclick="loadFleet()">Refresh fleet</button>
+  <button onclick="bgToggle()" title="Set this panel's background image (Aegis only; each agent owns its own)">background</button>
   <span class="fontctl" title="Resize all main-panel text: agent cards/chips, console, prompt, answers">text <button class="fontbtn" onclick="logFont(-1)" title="smaller">A&minus;</button> <button class="fontbtn" onclick="logFont(1)" title="larger">A+</button> <button class="fontbtn" onclick="logFont(0)" title="reset">reset</button></span>
 </header>
 <div class="wrap">
+<div id="bgPanel">
+  <div class="hint" id="bgHint">&hellip;</div>
+  <div class="row"><label>page image</label>
+    <input class="file" type="file" id="bgPageFile" accept="image/png,image/jpeg,image/webp">
+    <button class="rst" onclick="bgReset('page')">reset all</button></div>
+  <div class="row"><label>fit</label>
+    <select id="bgFit" onchange="bgSet('page',{fit:this.value})">
+      <option value="cover">cover &mdash; fills, crops the overflow</option>
+      <option value="contain">contain &mdash; whole image, letterboxed</option>
+      <option value="fill">fill &mdash; stretches to fit</option>
+    </select></div>
+  <div class="row"><label>focal point</label>
+    <span class="muted">x</span><input type="range" id="bgPosX" min="0" max="100" oninput="bgSet('page',{posX:+this.value})">
+    <span class="muted">y</span><input type="range" id="bgPosY" min="0" max="100" oninput="bgSet('page',{posY:+this.value})">
+    <span class="hint">only bites on <b>cover</b>, which is the one that crops</span></div>
+  <div class="row"><label>inlay image</label>
+    <input class="file" type="file" id="bgInlayFile" accept="image/png,image/jpeg,image/webp">
+    <button class="rst" onclick="bgReset('inlay')">reset inlay</button>
+    <span class="hint">optional &mdash; with none, the panels ghost the page image</span></div>
+  <div class="row"><label>inlay look</label>
+    <span class="muted">opacity</span><input type="range" id="bgOp" min="0" max="60" oninput="bgSet('inlay',{opacity:this.value/100})">
+    <span class="muted">angle</span><input type="range" id="bgRot" min="-30" max="30" oninput="bgSet('inlay',{rotate:+this.value})">
+    <span class="muted">scale</span><input type="range" id="bgScale" min="60" max="260" oninput="bgSet('inlay',{scale:this.value/100})"></div>
+</div>
   <section>
     <h2 class="sect-h" onclick="toggleFleetMini()" title="Collapse/expand agent cards (chips stay clickable to set the target)">Fleet <span class="caret" id="fleetCaret">&#9662;</span></h2>
     <div class="fleet" id="fleet"><span class="muted">loading&hellip;</span></div>
@@ -1581,5 +1636,127 @@ setInterval(syncAccents, 10000);
 loadFleet();
 advInit();
 loadPlane();
+
+// ---- background lane -------------------------------------------------------------------
+// Aegis's own look only. Each agent owns its own background, set from that agent's page.
+// State lives server-side in ui-state/, so it survives a restart, a redeploy and a
+// deallocate/start -- the panel just reflects it.
+var BG = null;
+function bgToggle() {
+  var p = document.getElementById('bgPanel');
+  p.classList.toggle('on');
+  if (p.classList.contains('on')) bgLoad();
+}
+function bgApply(st) {
+  BG = st;
+  var d = document.documentElement, b = document.body;
+  var pg = st.slots.page, il = st.slots.inlay;
+  if (!pg.present) {
+    b.classList.remove('hasbg', 'lightbg');
+    d.style.removeProperty('--bg-img'); d.style.removeProperty('--inlay-img');
+    d.style.setProperty('--inlay-op', 0);
+  } else {
+    b.classList.add('hasbg');
+    var t = Date.now(); // cache-bust: one fixed filename per slot
+    d.style.setProperty('--bg-img', 'url("/api/background/page/file?t=' + t + '")');
+    d.style.setProperty('--bg-size', pg.fit === 'fill' ? '100% 100%' : pg.fit);
+    d.style.setProperty('--bg-pos', pg.posX + '% ' + pg.posY + '%');
+    var src = il.present ? 'inlay' : 'page';
+    var cfg = il.present ? il : { opacity: 0.14, rotate: -6, scale: 1.4 };
+    d.style.setProperty('--inlay-img', 'url("/api/background/' + src + '/file?t=' + t + '")');
+    d.style.setProperty('--inlay-op', cfg.opacity);
+    d.style.setProperty('--inlay-rot', cfg.rotate + 'deg');
+    d.style.setProperty('--inlay-scale', cfg.scale);
+    // Contrast: measured mean luminance of whatever the panels are ghosting decides the text
+    // colour, and the panel keeps enough of its own body that text never sits on raw image.
+    var lum = (il.present ? il.lum : pg.lum);
+    var light = (typeof lum === 'number') && lum > 0.6;
+    b.classList.toggle('lightbg', light);
+    d.style.setProperty('--panel-a', light ? 0.86 : 0.78);
+  }
+  // reflect current values into the controls
+  var set = function (id, v) { var e = document.getElementById(id); if (e) e.value = v; };
+  set('bgFit', pg.fit); set('bgPosX', pg.posX); set('bgPosY', pg.posY);
+  set('bgOp', Math.round((il.present ? il.opacity : 0.14) * 100));
+  set('bgRot', il.present ? il.rotate : -6);
+  set('bgScale', Math.round((il.present ? il.scale : 1.4) * 100));
+  // The hint is the thing you read BEFORE opening the picker: what this window wants, and
+  // what the file you already uploaded actually is.
+  var vw = window.innerWidth, vh = window.innerHeight;
+  var want = (vw / vh).toFixed(2);
+  var txt = 'PNG, JPEG or WebP &middot; up to ' + Math.round(st.maxBytes / 1048576) + ' MB &middot; '
+          + 'this window is <b>' + vw + '&times;' + vh + '</b> (' + want + ':1) &mdash; an image near that ratio fills it without cropping.';
+  if (pg.present && pg.w && pg.h) {
+    var have = (pg.w / pg.h).toFixed(2);
+    var diff = Math.abs(pg.w / pg.h - vw / vh) / (vw / vh);
+    txt += '<br>current: <b>' + pg.w + '&times;' + pg.h + '</b> (' + have + ':1)'
+        + (diff > 0.08 ? ' &mdash; ratios differ, so <b>cover</b> crops; use the focal point, or <b>contain</b> to see all of it.'
+                       : ' &mdash; close enough to the window that cover barely crops.');
+  }
+  var h = document.getElementById('bgHint'); if (h) h.innerHTML = txt;
+}
+function bgLoad() {
+  fetch('/api/background').then(function (r) { return r.json(); }).then(bgApply).catch(function () {});
+}
+function bgSet(slot, patch) {
+  fetch('/api/background/' + slot + '/settings', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch)
+  }).then(function (r) { return r.json(); }).then(bgApply).catch(function () {});
+}
+function bgReset(slot) {
+  fetch('/api/background/' + slot, { method: 'DELETE' })
+    .then(function (r) { return r.json(); }).then(bgApply).catch(function () {});
+}
+// Mean luminance + true pixel dimensions, measured in the browser on a canvas. Sent as query
+// params and recorded server-side as client-measured: it drives the text-contrast flip only.
+function bgMeasure(file) {
+  return new Promise(function (resolve) {
+    var url = URL.createObjectURL(file), img = new Image();
+    img.onload = function () {
+      var n = 64, c = document.createElement('canvas'); c.width = n; c.height = n;
+      var g = c.getContext('2d'); g.drawImage(img, 0, 0, n, n);
+      var lum = null;
+      try {
+        var px = g.getImageData(0, 0, n, n).data, sum = 0;
+        for (var i = 0; i < px.length; i += 4) sum += (0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]) / 255;
+        lum = sum / (px.length / 4);
+      } catch (e) { /* tainted canvas cannot happen for a local file, but never block on it */ }
+      URL.revokeObjectURL(url);
+      resolve({ lum: lum, w: img.naturalWidth, h: img.naturalHeight });
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); resolve({ lum: null, w: null, h: null }); };
+    img.src = url;
+  });
+}
+function bgUpload(slot, file) {
+  if (!file) return;
+  var hint = document.getElementById('bgHint');
+  bgMeasure(file).then(function (m) {
+    var q = [];
+    if (m.lum !== null) q.push('lum=' + m.lum.toFixed(4));
+    if (m.w && m.h) { q.push('aspect=' + (m.w / m.h).toFixed(4)); q.push('w=' + m.w); q.push('h=' + m.h); }
+    return fetch('/api/background/' + slot + (q.length ? '?' + q.join('&') : ''), {
+      method: 'POST', headers: { 'Content-Type': file.type }, body: file
+    });
+  }).then(function (r) {
+    return r.json().then(function (j) {
+      if (!r.ok || j.ok === false) { if (hint) hint.innerHTML = '<b style="color:#e0a0a0">' + (j.error || ('upload failed: HTTP ' + r.status)) + '</b>'; return; }
+      bgApply(j);
+    });
+  }).catch(function (e) { if (hint) hint.innerHTML = '<b style="color:#e0a0a0">upload failed: ' + e.message + '</b>'; });
+}
+(function () {
+  var wire = function () {
+    var a = document.getElementById('bgPageFile'), b = document.getElementById('bgInlayFile');
+    if (a) a.addEventListener('change', function () { bgUpload('page', this.files[0]); });
+    if (b) b.addEventListener('change', function () { bgUpload('inlay', this.files[0]); });
+    bgLoad();
+    // the hint quotes the live viewport, so it has to follow a resize
+    var t = null;
+    window.addEventListener('resize', function () { clearTimeout(t); t = setTimeout(function () { if (BG) bgApply(BG); }, 250); });
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire); else wire();
+})();
+
 </script>
 </body></html>

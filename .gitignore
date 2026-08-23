@@ -8,3 +8,7 @@ aegis.config.json
 aegis-audit.jsonl
 telegram-state.json
 ledger-backups/
+
+# operator's uploaded background/inlay images + their settings: state, never code, and the
+# reason they survive a rebuild, a redeploy and a deallocate/start
+ui-state/

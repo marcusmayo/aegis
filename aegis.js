@@ -583,6 +583,91 @@ function planeName() {
 }
 function sendJson(res, obj, status = 200) { res.statusCode = status; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(obj)); }
 
+// ---- background / inlay ---------------------------------------------------------------------
+// Aegis's own look, and only its own: the agents each own theirs. Two OPTIONAL slots -- `page`
+// fills the window, `inlay` is what the panels ghost; with only `page` uploaded the panels ghost
+// that. Files live beside the audit ledger in the checkout, gitignored, so a deallocate/start
+// keeps them and `git pull` never touches them. This is a sibling of the agents' implementation
+// in fleet-core webchat-ops.js rather than a shared module, because Aegis is not a core consumer
+// and binding it to the manifest is a bigger change than the feature; keep the two in step.
+const UI_DIR = path.join(__dirname, 'ui-state');
+const UI_JSON = path.join(UI_DIR, 'ui.json');
+const BG_SLOTS = { page: 1, inlay: 1 };
+// Magic bytes, never the extension and never the client's Content-Type -- both are caller-chosen.
+// SVG is refused outright: it is a script carrier, and this is the one route that accepts a file.
+const BG_MAGIC = [
+  { ext: 'png',  mime: 'image/png',  test: (b) => b.length > 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 },
+  { ext: 'jpg',  mime: 'image/jpeg', test: (b) => b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
+  { ext: 'webp', mime: 'image/webp', test: (b) => b.length > 12 && b.slice(0, 4).toString('ascii') === 'RIFF' && b.slice(8, 12).toString('ascii') === 'WEBP' },
+];
+// 12 MB, not 8: the operator's real scenes run to 7.8 MB and a cap that rejects the files in
+// actual use is a cap set by guesswork.
+const BG_MAX = 12 * 1024 * 1024;
+
+function bgReadUi() {
+  try { const j = JSON.parse(fs.readFileSync(UI_JSON, 'utf8')); return (j && typeof j === 'object') ? j : {}; }
+  catch { return {}; }
+}
+function bgWriteUi(next) {
+  try {
+    fs.mkdirSync(UI_DIR, { recursive: true });
+    fs.writeFileSync(UI_JSON, JSON.stringify(next) + '\n');
+  } catch (e) { console.error('ui.json write failed: ' + e.message); }
+}
+function bgSlotFile(slot) {
+  for (const m of BG_MAGIC) {
+    const f = path.join(UI_DIR, slot + '.' + m.ext);
+    if (fs.existsSync(f)) return { file: f, ext: m.ext, mime: m.mime };
+  }
+  return null;
+}
+function bgClamp(v, lo, hi, dflt) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
+}
+function bgState() {
+  const ui = bgReadUi();
+  const out = { ok: true, accept: BG_MAGIC.map((m) => m.mime), maxBytes: BG_MAX, slots: {} };
+  for (const slot of Object.keys(BG_SLOTS)) {
+    const f = bgSlotFile(slot);
+    const s = (ui.background && ui.background[slot]) || {};
+    out.slots[slot] = {
+      present: !!f,
+      ext: f ? f.ext : null,
+      fit: s.fit || 'cover',
+      posX: bgClamp(s.posX, 0, 100, 50),
+      posY: bgClamp(s.posY, 0, 100, 50),
+      opacity: bgClamp(s.opacity, 0, 1, slot === 'inlay' ? 0.14 : 1),
+      rotate: bgClamp(s.rotate, -180, 180, slot === 'inlay' ? -6 : 0),
+      scale: bgClamp(s.scale, 0.2, 3, slot === 'inlay' ? 1.4 : 1),
+      // Mean luminance measured in the BROWSER on a canvas and labelled as such. It drives the
+      // panel-text contrast flip only; decoding images here would add a dependency for no gain.
+      lum: (typeof s.lum === 'number') ? s.lum : null,
+      lumSource: (typeof s.lum === 'number') ? 'client-measured' : null,
+      aspect: (typeof s.aspect === 'number') ? s.aspect : null,
+      w: (typeof s.w === 'number') ? s.w : null,
+      h: (typeof s.h === 'number') ? s.h : null,
+    };
+  }
+  return out;
+}
+function bgReadRaw(req, cap) {
+  return new Promise((resolve, reject) => {
+    const chunks = []; let n = 0; let done = false;
+    req.on('data', (c) => {
+      if (done) return;
+      n += c.length;
+      // Do NOT destroy here: killing the socket races the 413 and the client sees a connection
+      // reset instead of the reason. The route answers first, then closes.
+      if (n > cap) { done = true; reject(new Error('too large')); return; }
+      chunks.push(c);
+    });
+    req.on('end', () => { if (!done) { done = true; resolve(Buffer.concat(chunks)); } });
+    req.on('error', (e) => { if (!done) { done = true; reject(e); } });
+  });
+}
+
+
 // Destructive lanes need real Cloudflare credentials -- a placeholder CF_ACCOUNT_ID silently
 // orphaned an agent's tunnel/DNS/Access/token during teardown. Fail closed with the exact fix.
 function operatorEmail() {
@@ -668,6 +753,92 @@ const server = http.createServer(async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     return res.end(JSON.stringify(out));
   }
+  // --- background: Aegis's own page + panel-inlay images (its look only; agents own theirs) ---
+  {
+    const bgm = req.url.match(/^\/api\/background(?:\/([a-z]+))?(?:\/(file|settings))?(?:\?.*)?$/);
+    if (bgm) {
+      const slot = bgm[1] || null;
+      const verb = bgm[2] || null;
+      if (req.method === 'GET' && !slot) return sendJson(res, bgState());
+      if (slot && !BG_SLOTS[slot]) return sendJson(res, { ok: false, error: 'unknown slot' }, 400);
+
+      if (req.method === 'GET' && verb === 'file') {
+        const f = bgSlotFile(slot);
+        if (!f) { res.statusCode = 404; return res.end(); }
+        res.setHeader('Content-Type', f.mime);
+        res.setHeader('Cache-Control', 'no-store');
+        return res.end(fs.readFileSync(f.file));
+      }
+
+      if (req.method === 'POST' && verb === 'settings') {
+        const b = await readBody(req);
+        const ui = bgReadUi();
+        const cur = ui.background || {};
+        const st = Object.assign({}, cur[slot]);
+        if (b.fit !== undefined) st.fit = (['cover', 'contain', 'fill'].indexOf(String(b.fit)) >= 0) ? String(b.fit) : 'cover';
+        if (b.posX !== undefined) st.posX = bgClamp(b.posX, 0, 100, 50);
+        if (b.posY !== undefined) st.posY = bgClamp(b.posY, 0, 100, 50);
+        if (b.opacity !== undefined) st.opacity = bgClamp(b.opacity, 0, 1, 0.14);
+        if (b.rotate !== undefined) st.rotate = bgClamp(b.rotate, -180, 180, 0);
+        if (b.scale !== undefined) st.scale = bgClamp(b.scale, 0.2, 3, 1);
+        cur[slot] = st; ui.background = cur; bgWriteUi(ui);
+        return sendJson(res, bgState());
+      }
+
+      if (req.method === 'POST' && slot) {
+        let buf;
+        try { buf = await bgReadRaw(req, BG_MAX); }
+        catch (e) {
+          const tooBig = /too large/.test(e.message);
+          res.statusCode = tooBig ? 413 : 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.setHeader('Connection', 'close');
+          return res.end(JSON.stringify({ ok: false, error: tooBig ? 'too large (max ' + BG_MAX + ' bytes)' : 'read failed' }), () => { try { req.destroy(); } catch { /* already gone */ } });
+        }
+        if (!buf || !buf.length) return sendJson(res, { ok: false, error: 'empty body - POST the raw image bytes' }, 400);
+        const kind = BG_MAGIC.find((m) => m.test(buf));
+        if (!kind) return sendJson(res, { ok: false, error: 'not a PNG, JPEG or WebP (checked by content, not by name)' }, 415);
+        try {
+          fs.mkdirSync(UI_DIR, { recursive: true });
+          // one fixed name per slot: no traversal surface and no unbounded growth
+          for (const m of BG_MAGIC) { try { fs.unlinkSync(path.join(UI_DIR, slot + '.' + m.ext)); } catch { /* absent */ } }
+          fs.writeFileSync(path.join(UI_DIR, slot + '.' + kind.ext), buf, { mode: 0o644 });
+        } catch (e) { return sendJson(res, { ok: false, error: 'write failed: ' + e.message }, 500); }
+        const q = {};
+        const qs = req.url.indexOf('?');
+        if (qs >= 0) for (const [k, v] of new URLSearchParams(req.url.slice(qs + 1))) q[k] = v;
+        const ui = bgReadUi();
+        const cur = ui.background || {};
+        cur[slot] = Object.assign({}, cur[slot], {
+          lum: q.lum !== undefined ? bgClamp(q.lum, 0, 1, null) : (cur[slot] || {}).lum,
+          aspect: q.aspect !== undefined ? bgClamp(q.aspect, 0.05, 20, null) : (cur[slot] || {}).aspect,
+          w: q.w !== undefined ? bgClamp(q.w, 1, 20000, null) : (cur[slot] || {}).w,
+          h: q.h !== undefined ? bgClamp(q.h, 1, 20000, null) : (cur[slot] || {}).h,
+        });
+        ui.background = cur; bgWriteUi(ui);
+        audit({ action: 'ui-background-set', slot, bytes: buf.length, ext: kind.ext, actor: actorOf(req), via: 'panel' });
+        return sendJson(res, bgState());
+      }
+
+      // Reset. Deliberately NOT attested: it destroys a preference, and gating cosmetics
+      // cheapens the gate. Clearing `page` clears `inlay` too -- an inlay with nothing behind
+      // it is not a state worth having.
+      if (req.method === 'DELETE' && slot) {
+        const kill = (slot === 'page') ? ['page', 'inlay'] : ['inlay'];
+        const ui = bgReadUi();
+        const cur = ui.background || {};
+        for (const s2 of kill) {
+          for (const m of BG_MAGIC) { try { fs.unlinkSync(path.join(UI_DIR, s2 + '.' + m.ext)); } catch { /* absent */ } }
+          delete cur[s2];
+        }
+        if (Object.keys(cur).length) ui.background = cur; else delete ui.background;
+        bgWriteUi(ui);
+        audit({ action: 'ui-background-reset', slots: kill.join(','), actor: actorOf(req), via: 'panel' });
+        return sendJson(res, bgState());
+      }
+    }
+  }
+
   if (req.url === '/' || req.url === '/index.html') {
     res.setHeader('Content-Type', 'text/html');
     return res.end(fs.readFileSync(path.join(__dirname, 'index.html')));
