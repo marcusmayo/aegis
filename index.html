@@ -26,13 +26,16 @@
   body.hasbg.hasinlay .card,body.hasbg.hasinlay .console,body.hasbg.hasinlay .log{text-shadow:0 1px 2px rgba(0,0,0,.62)}
   body.hasbg.hasinlay.lightbg .card,body.hasbg.hasinlay.lightbg .console,body.hasbg.hasinlay.lightbg .log{text-shadow:0 1px 2px rgba(255,255,255,.75)}
   /* the control itself */
+  /* The panel scales with the A-/A+ control like everything else in the main column; its
+     label column is in em so the rows do not crowd as the type grows. */
   #bgPanel{display:none;margin:10px 0;padding:12px 14px;background:var(--panel);
-    border:1px solid var(--line);border-radius:8px;font-size:12px}
+    border:1px solid var(--line);border-radius:8px;font-size:var(--uifs,12px)}
   #bgPanel.on{display:block}
   #bgPanel .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:6px 0}
-  #bgPanel label{color:var(--dim);min-width:104px}
-  #bgPanel .hint{color:var(--dim);font-size:11px;line-height:1.6}
-  #bgPanel input[type=range]{width:150px}
+  #bgPanel label{color:var(--dim);min-width:9em}
+  #bgPanel .hint{color:var(--dim);font-size:calc(var(--uifs,12px) - 1px);line-height:1.6}
+  #bgPanel input[type=range]{width:13em}
+  #bgPanel select,#bgPanel input[type=file]{font-size:var(--uifs,12px)}
   #bgPanel button.rst{background:#2a1414;border:1px solid #5a2020;color:#e0a0a0;
     border-radius:5px;padding:4px 10px;cursor:pointer;font:inherit}
   *{box-sizing:border-box}
