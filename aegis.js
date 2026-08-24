@@ -256,30 +256,19 @@ function planeSkew(pre) {
   return { skewed: out.length > 0, detail: out, boot: BOOT, checkout: repoHeads(s) };
 }
 
-// Restarting is the one act the plane performs on itself, so it gets one chance to be honest
-// about it. The old shape -- detached, stdio ignored, inside an empty catch -- could not fail
-// visibly: a spawn error, a sudo refusal and a systemd no-op were all indistinguishable from
-// success, and the panel said "restarting" in every case. Live, the pull landed and the unit
-// never moved, twice, with nothing written anywhere to say so. So: keep an error listener (a
-// spawn failure must not die silently), capture the child's own words, and -- because a restart
-// that works kills this process long before the check fires -- treat still being alive ten
-// seconds later as proof that it did not take, and ledger that.
+// The plane restarts by ending, not by asking. It spent three updates spawning
+// `sudo systemctl restart aegis` into silence: the unit sets NoNewPrivileges=yes, which makes the
+// kernel ignore sudo's setuid bit at exec, so sudo died as uid 1000 BEFORE pam -- no restart, no
+// auth.log line, no crash, and a panel that said "restarting" every time. The answer is not to
+// hand the plane privilege back. systemd already owns the restart policy and needs no permission
+// from us: exit with a status the unit restarts on, and let it. Nothing setuid is involved, so
+// there is no bit to inherit and nothing that can fail quietly. The exit is ledgered first --
+// audit is a synchronous append -- so the intent is on disk before the process is gone, and the
+// panel proves the outcome by watching bootedAt change rather than by being told.
+const RESTART_EXIT = 75;
 function restartUnit(base) {
-  const startedAt = () => { try { const s = spawnSync('systemctl', ['show', 'aegis', '-p', 'ExecMainStartTimestamp', '--value'], { encoding: 'utf8', timeout: 10000 }); return (s.stdout || '').trim() || null; } catch { return null; } };
-  const was = startedAt();
-  let err = '', p = null, said = false;
-  try {
-    p = spawn('sudo', ['-n', '/usr/bin/systemctl', 'restart', 'aegis'], { stdio: ['ignore', 'pipe', 'pipe'] });
-  } catch (e) {
-    audit({ ...base, outcome: 'failed: restart could not spawn: ' + e.message, restartWas: was });
-    return;
-  }
-  p.stderr.on('data', (d) => { err += d; });
-  p.on('error', (e) => { if (said) return; said = true; audit({ ...base, outcome: 'failed: restart could not spawn: ' + e.message, restartWas: was }); });
-  p.on('close', (code) => { if (said || code === 0) return; said = true; audit({ ...base, outcome: 'failed: restart exited ' + code, stderr: err.trim().slice(0, 300), restartWas: was }); });
-  setTimeout(() => {
-    audit({ ...base, outcome: 'failed: restart did not take \u2014 this process is still running', restartWas: was, restartNow: startedAt(), stderr: err.trim().slice(0, 300) });
-  }, 10000);
+  audit({ ...base, outcome: 'restarting: exiting ' + RESTART_EXIT + ' for systemd to bring the unit back' });
+  setTimeout(() => process.exit(RESTART_EXIT), 250);
 }
 
 function planeRepoState() {
