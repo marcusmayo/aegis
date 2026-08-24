@@ -597,6 +597,10 @@ async function planeUpdatePlan(){
 }
 async function planeUpdateGo(){
   const out=$('#puOut'); const b=$('#puExec'); b.disabled=true; out.textContent+='\n\nupdating\u2026';
+  // What this process booted as, read before the act. A restart is proven by that changing and
+  // by nothing else: an answering /api/plane only proves something is listening, and the thing
+  // listening may be the same process that was asked to go away.
+  let wasBoot=null; try{ wasBoot=((await (await fetch('/api/plane',{cache:'no-store'})).json())||{}).bootedAt||null; }catch(e){ }
   let j=null; try{ j=await (await fetch('/api/plane/update/go',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({expect:PU_EXPECT})})).json(); }catch(e){ out.textContent+='\nrequest failed: '+e; return; }
   if(!j.ok){ out.textContent+='\n'+(j.out||'failed'); if(!/stale/i.test(j.out||'')) b.disabled=false; return; }
   const p=j.pulls||{};
@@ -604,9 +608,22 @@ async function planeUpdateGo(){
   // the unit restarts now; poll until the plane answers again, then reload so this page runs the new code
   const t0=Date.now(); let seen=false;
   const tick=setInterval(async()=>{
-    try{ const r=await fetch('/api/plane',{cache:'no-store'}); if(r.ok&&(seen||Date.now()-t0>8000)){ clearInterval(tick); out.textContent+='\nplane is back \u2014 reloading'; setTimeout(()=>location.reload(),600); } }
+    try{
+      const r=await fetch('/api/plane',{cache:'no-store'});
+      if(r.ok){
+        const now=(((await r.json())||{}).bootedAt)||null;
+        if(now&&wasBoot&&now!==wasBoot){ clearInterval(tick); out.textContent+='\nplane is back on a new process \u2014 reloading'; setTimeout(function(){location.reload();},600); return; }
+        if(seen&&(!now||!wasBoot)){ clearInterval(tick); out.textContent+='\nplane answered again \u2014 reloading'; setTimeout(function(){location.reload();},600); return; }
+        if(Date.now()-t0>25000){
+          clearInterval(tick); b.disabled=false;
+          out.textContent+='\n\nTHE UNIT DID NOT RESTART \u2014 still the process from '+String(now||'?').slice(0,19)+'.'
+            +'\nWhatever moved on disk moved; the code answering you did not. The ledger says why:'
+            +'\nAudit \u00b7 action plane-update \u00b7 outcome failed: restart ...'; return;
+        }
+      }
+    }
     catch(e){ seen=true; out.textContent+='.'; }
-    if(Date.now()-t0>120000){ clearInterval(tick); out.textContent+='\nstill waiting after 2 min \u2014 reload by hand (Ctrl+F5)'; }
+    if(Date.now()-t0>120000){ clearInterval(tick); b.disabled=false; out.textContent+='\nstill waiting after 2 min \u2014 reload by hand (Ctrl+F5)'; }
   },2000);
 }
 // Export by date range: empty = full history. Whole local days: from = 00:00 of that day, to = 00:00

@@ -256,6 +256,32 @@ function planeSkew(pre) {
   return { skewed: out.length > 0, detail: out, boot: BOOT, checkout: repoHeads(s) };
 }
 
+// Restarting is the one act the plane performs on itself, so it gets one chance to be honest
+// about it. The old shape -- detached, stdio ignored, inside an empty catch -- could not fail
+// visibly: a spawn error, a sudo refusal and a systemd no-op were all indistinguishable from
+// success, and the panel said "restarting" in every case. Live, the pull landed and the unit
+// never moved, twice, with nothing written anywhere to say so. So: keep an error listener (a
+// spawn failure must not die silently), capture the child's own words, and -- because a restart
+// that works kills this process long before the check fires -- treat still being alive ten
+// seconds later as proof that it did not take, and ledger that.
+function restartUnit(base) {
+  const startedAt = () => { try { const s = spawnSync('systemctl', ['show', 'aegis', '-p', 'ExecMainStartTimestamp', '--value'], { encoding: 'utf8', timeout: 10000 }); return (s.stdout || '').trim() || null; } catch { return null; } };
+  const was = startedAt();
+  let err = '', p = null, said = false;
+  try {
+    p = spawn('sudo', ['-n', '/usr/bin/systemctl', 'restart', 'aegis'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (e) {
+    audit({ ...base, outcome: 'failed: restart could not spawn: ' + e.message, restartWas: was });
+    return;
+  }
+  p.stderr.on('data', (d) => { err += d; });
+  p.on('error', (e) => { if (said) return; said = true; audit({ ...base, outcome: 'failed: restart could not spawn: ' + e.message, restartWas: was }); });
+  p.on('close', (code) => { if (said || code === 0) return; said = true; audit({ ...base, outcome: 'failed: restart exited ' + code, stderr: err.trim().slice(0, 300), restartWas: was }); });
+  setTimeout(() => {
+    audit({ ...base, outcome: 'failed: restart did not take \u2014 this process is still running', restartWas: was, restartNow: startedAt(), stderr: err.trim().slice(0, 300) });
+  }, 10000);
+}
+
 function planeRepoState() {
   const unit = spawnSync('systemctl', ['is-active', 'aegis'], { encoding: 'utf8' });
   return { aegis: repoState(__dirname), fleet: repoState(FLEET_IAC_ROOT), unit: (unit.stdout || '').trim() || 'unknown' };
@@ -1176,9 +1202,7 @@ const server = http.createServer(async (req, res) => {
       }
       audit({ ...base, outcome: 'done: restart only', running: skew.boot, skew: skew.detail, before: repoHeads(before) });
       sendJson(res, { ok: true, pulls: {}, restartOnly: true, restarting: true, skew: skew.detail, out: 'nothing to pull — this process is older than the checkouts; restarting the unit in ~1 s — the panel will reconnect' });
-      setTimeout(() => {
-        try { spawn('sudo', ['-n', '/usr/bin/systemctl', 'restart', 'aegis'], { stdio: 'ignore', detached: true }).unref(); } catch { /* the response is already out; the next plan will show it did not move */ }
-      }, 800);
+      setTimeout(() => restartUnit(base), 800);
       return;
     }
     if (stale.length) {
@@ -1201,9 +1225,7 @@ const server = http.createServer(async (req, res) => {
     }
     audit({ ...base, outcome: 'done', pulls });
     sendJson(res, { ok: true, pulls, restarting: true, out: 'pulled both checkouts; restarting the unit in ~1 s — the panel will reconnect' });
-    setTimeout(() => {
-      try { spawn('sudo', ['-n', '/usr/bin/systemctl', 'restart', 'aegis'], { stdio: 'ignore', detached: true }).unref(); } catch { /* the response is already out; the plan will show it did not move */ }
-    }, 800);
+    setTimeout(() => restartUnit(base), 800);
     return;
   }
   // ---- Discovery: what Azure holds against THIS plane's registry (fleetctl discover --json).
