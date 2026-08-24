@@ -48,7 +48,9 @@ intake). Aegis holds no agent data — it proxies, observes, and commands.
 - **Update plane** — the plane's own code updates through the same shape it
   imposes on everything else: fast-forward only, attested, ledgered with
   before/after commits, and a red banner if the running process is older than
-  its checkout.
+  its checkout — a state the same button clears, restarting with nothing to
+  pull. The plane holds no privilege to restart itself: it exits 75 and lets
+  systemd bring it back.
 
 A Telegram lane mirrors the essentials (`/use`, `/model`, `/web`, `/staged`,
 prompts) for one allow-listed chat id, relaying each agent's own authoritative
