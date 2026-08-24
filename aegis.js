@@ -599,6 +599,12 @@ function planeName() {
 function sendJson(res, obj, status = 200) { res.statusCode = status; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(obj)); }
 
 // ---- background / inlay ---------------------------------------------------------------------
+// SIBLING, NOT SHARED: the agents run this same two-slot lane from fleet-core/webchat-ops.js
+// (search "background / inlay" there). Kept separate on purpose -- aegis is not a core consumer:
+// no vendored core, no manifest, and a different execution environment (a systemd unit under
+// NoNewPrivileges, not a container), so binding it to core would be a larger change than the
+// duplication it removes. Change one, read the other: what must stay in step is the wire shape
+// (/ui/background, slots page|inlay, magic-byte typing, 12 MB cap), not the code.
 // Aegis's own look, and only its own: the agents each own theirs. Two OPTIONAL slots -- `page`
 // fills the window, `inlay` is what the panels ghost; with only `page` uploaded the panels ghost
 // that. Files live beside the audit ledger in the checkout, gitignored, so a deallocate/start
