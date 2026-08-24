@@ -245,8 +245,8 @@ const BOOT = (() => {
 })();
 
 // null when either side is unknown -- an unreadable checkout is not evidence of a skew.
-function planeSkew() {
-  const s = planeRepoState();
+function planeSkew(pre) {
+  const s = pre || planeRepoState();
   const out = [];
   for (const [k, label] of [['aegis', 'aegis'], ['fleet', 'agent-fleet-iac']]) {
     const disk = s[k] && s[k].local;
@@ -1130,7 +1130,11 @@ const server = http.createServer(async (req, res) => {
   // the unit alone), the act ledgered with before/after commits, then the restart through the one
   // sudoers rule the plane holds (systemctl restart aegis) after the response has gone out.
   if (req.url === '/api/plane/update/plan' && req.method === 'GET') {
-    return sendJson(res, { ok: true, plane: planeName(), ...planeRepoState() });
+    // One read of both checkouts, two facts from it: disk vs origin (is there a pull to make)
+    // and process vs disk (is there a restart to make). The second is invisible to git and is
+    // the state that looked healthiest -- clean, current, unit active, and running old code.
+    const st = planeRepoState();
+    return sendJson(res, { ok: true, plane: planeName(), ...st, skew: planeSkew(st) });
   }
   // The confirmation is the move itself, not a typed sentence: the panel sends the exact commits
   // the operator saw in the plan (from -> to per repo) and the plane accepts only if that is still
@@ -1152,9 +1156,30 @@ const server = http.createServer(async (req, res) => {
       if (!s.pending) continue;                                    // nothing to move for this repo
       if (e.from !== s.local || e.to !== s.remote) stale.push(r + ': plan said ' + (e.from || '?') + ' \u2192 ' + (e.to || '?') + ', plane sees ' + s.local + ' \u2192 ' + s.remote);
     }
+    // A checkout is not a deployment, so "nothing to pull" is not "nothing to do": if this
+    // process is older than the code on disk, restarting IS the update. Refusing it for want of
+    // a pull is what left a stale plane with no way to recover itself from its own panel.
+    const skew = planeSkew(before);
     if (!(before.aegis && before.aegis.pending) && !(before.fleet && before.fleet.pending)) {
-      audit({ ...base, outcome: 'refused: nothing pending', before: repoHeads(before) });
-      return sendJson(res, { ok: false, out: 'nothing to update — both checkouts are at their pushed HEADs' }, 400);
+      if (!skew.skewed) {
+        audit({ ...base, outcome: 'refused: nothing pending', before: repoHeads(before) });
+        return sendJson(res, { ok: false, out: 'nothing to update — both checkouts are at their pushed HEADs, and this process is running them' }, 400);
+      }
+      // Same grammar as a pull: the panel names what it saw and the plane refuses if that is no
+      // longer the move. Here the move is "boot what is on disk", so the disk heads are the move.
+      const er = (expect && typeof expect.restart === 'object' && expect.restart) || {};
+      const rs = [];
+      for (const r of ['aegis', 'fleet']) { const s = before[r] || {}; if (s.present && er[r] !== s.local) rs.push(r + ': plan said ' + (er[r] || '?') + ', plane sees ' + s.local); }
+      if (rs.length) {
+        audit({ ...base, outcome: 'refused: restart plan stale', expect, before: repoHeads(before) });
+        return sendJson(res, { ok: false, out: 'REFUSED — the plan is stale, check for updates again:\n  ' + rs.join('\n  ') }, 409);
+      }
+      audit({ ...base, outcome: 'done: restart only', running: skew.boot, skew: skew.detail, before: repoHeads(before) });
+      sendJson(res, { ok: true, pulls: {}, restartOnly: true, restarting: true, skew: skew.detail, out: 'nothing to pull — this process is older than the checkouts; restarting the unit in ~1 s — the panel will reconnect' });
+      setTimeout(() => {
+        try { spawn('sudo', ['-n', '/usr/bin/systemctl', 'restart', 'aegis'], { stdio: 'ignore', detached: true }).unref(); } catch { /* the response is already out; the next plan will show it did not move */ }
+      }, 800);
+      return;
     }
     if (stale.length) {
       audit({ ...base, outcome: 'refused: plan stale', expect, before: repoHeads(before) });

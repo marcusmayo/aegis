@@ -302,7 +302,7 @@
 <div id="toolPanelR">
   <div class="tool-content" id="tc-adv">
     <h3 style="margin:4px 0 8px">Update plane <span class="muted">(this control plane's own code)</span></h3>
-    <div class="muted" style="font-size:var(--uifs,12px);margin-bottom:6px">Moves this plane's two checkouts (aegis, agent-fleet-iac) to their pushed HEADs, fast-forward only, then restarts the unit. Attested and ledgered with before/after commits &mdash; it changes the code that runs every other attested lane. Anything typed while the plane restarts is dropped; the panel reconnects on its own.</div>
+    <div class="muted" style="font-size:var(--uifs,12px);margin-bottom:6px">Moves this plane's two checkouts (aegis, agent-fleet-iac) to their pushed HEADs, fast-forward only, then restarts the unit &mdash; and where the checkouts are already current but this process is older than them, restarts onto the code on disk with nothing to pull. Attested and ledgered with before/after commits &mdash; it changes the code that runs every other attested lane. Anything typed while the plane restarts is dropped; the panel reconnects on its own.</div>
     <div id="puSkew" style="display:none;margin:6px 0;padding:6px 8px;border:1px solid #7f1d1d;background:#1c1c1c;color:#ef4444;font-size:var(--uifs,12px);white-space:pre-wrap"></div>
     <div class="tool-row"><button onclick="planeUpdatePlan()">Check for updates</button></div>
     <pre class="planout" id="puOut" style="min-height:60px"><span class="muted">heads appear here&hellip;</span></pre>
@@ -552,11 +552,19 @@ let PU_PENDING=false, PU_EXPECT=null;
 function puArm(j){
   const b=$('#puExec'), h=$('#puHint'); if(!b||!h) return;
   PU_PENDING=!!((j&&j.aegis&&j.aegis.pending)||(j&&j.fleet&&j.fleet.pending));
-  PU_EXPECT=PU_PENDING?{aegis:{from:j.aegis&&j.aegis.local,to:j.aegis&&j.aegis.remote},fleet:{from:j.fleet&&j.fleet.local,to:j.fleet&&j.fleet.remote}}:null;
-  b.disabled=!PU_PENDING;
+  // Two reasons to act, not one. A pull is pending, OR the checkouts are current and this
+  // process is older than them -- in which case the restart is the whole act and the disk heads
+  // are the move. Only "current and running them" leaves the button dead.
+  const SKEW=!PU_PENDING&&!!(j&&j.skew&&j.skew.skewed);
+  PU_EXPECT=PU_PENDING?{aegis:{from:j.aegis&&j.aegis.local,to:j.aegis&&j.aegis.remote},fleet:{from:j.fleet&&j.fleet.local,to:j.fleet&&j.fleet.remote}}
+    :SKEW?{restart:{aegis:j.aegis&&j.aegis.local,fleet:j.fleet&&j.fleet.local}}:null;
+  b.disabled=!(PU_PENDING||SKEW);
   if(PU_PENDING){
     const parts=[]; if(j.aegis&&j.aegis.pending) parts.push('aegis '+j.aegis.local+'\u2192'+j.aegis.remote); if(j.fleet&&j.fleet.pending) parts.push('fleet '+j.fleet.local+'\u2192'+j.fleet.remote);
     b.textContent='Update plane: '+parts.join(' \u00b7 '); h.style.color=''; h.textContent='one click moves exactly those commits and restarts the unit; the act is ledgered with before/after';
+  } else if(SKEW){
+    b.textContent='Restart plane: boot '+((j.aegis&&j.aegis.local)||'?')+' \u00b7 '+((j.fleet&&j.fleet.local)||'?'); h.style.color='#fbbf24';
+    h.textContent='nothing to pull \u2014 the checkouts are current but this process is older than them; one click restarts the unit onto the code already on disk';
   } else { b.textContent='Update plane'; h.style.color=''; h.textContent='nothing pending'; }
 }
 function puLine(label,r){ if(!r||!r.present) return label+': checkout not found'; return label+': '+r.local+' \u2192 '+(r.fetched?r.remote:'? (fetch failed)')+'  '+(r.pending?'UPDATE PENDING':'up to date')+(r.dirty?'  \u26a0 '+r.dirty+' tracked change(s) \u2014 a pull may refuse':''); }
@@ -580,14 +588,19 @@ async function planeUpdatePlan(){
   const out=$('#puOut'); out.textContent='fetching\u2026';
   let j=null; try{ j=await (await fetch('/api/plane/update/plan')).json(); }catch(e){ out.textContent='plan failed: '+e; return; }
   const pend=!!((j.aegis&&j.aegis.pending)||(j.fleet&&j.fleet.pending));
-  out.textContent=[puLine('aegis          ',j.aegis),puLine('agent-fleet-iac',j.fleet),'unit: '+(j.unit||'?'),'',pend?'the button below names the move':'nothing to update'].join('\n');
+  const skew=!pend&&!!(j.skew&&j.skew.skewed);
+  const tail=pend?'the button below names the move'
+    :skew?['nothing to pull \u2014 but this process is older than the checkouts:'].concat((j.skew.detail||[]).map(function(d){return '  '+d;})).concat(['the button below restarts the unit onto the code on disk']).join('\n')
+    :'nothing to update';
+  out.textContent=[puLine('aegis          ',j.aegis),puLine('agent-fleet-iac',j.fleet),'unit: '+(j.unit||'?'),'',tail].join('\n');
   puArm(j);
 }
 async function planeUpdateGo(){
   const out=$('#puOut'); const b=$('#puExec'); b.disabled=true; out.textContent+='\n\nupdating\u2026';
   let j=null; try{ j=await (await fetch('/api/plane/update/go',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({expect:PU_EXPECT})})).json(); }catch(e){ out.textContent+='\nrequest failed: '+e; return; }
   if(!j.ok){ out.textContent+='\n'+(j.out||'failed'); if(!/stale/i.test(j.out||'')) b.disabled=false; return; }
-  const p=j.pulls||{}; out.textContent+='\n'+['aegis: '+(p.aegis?p.aegis.before+' \u2192 '+p.aegis.after:'?'),'agent-fleet-iac: '+(p.fleet?p.fleet.before+' \u2192 '+p.fleet.after:'?'),j.out||''].join('\n');
+  const p=j.pulls||{};
+  out.textContent+='\n'+(j.restartOnly?[j.out||'restarting'] :['aegis: '+(p.aegis?p.aegis.before+' \u2192 '+p.aegis.after:'?'),'agent-fleet-iac: '+(p.fleet?p.fleet.before+' \u2192 '+p.fleet.after:'?'),j.out||'']).join('\n');
   // the unit restarts now; poll until the plane answers again, then reload so this page runs the new code
   const t0=Date.now(); let seen=false;
   const tick=setInterval(async()=>{
