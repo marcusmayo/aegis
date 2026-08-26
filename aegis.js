@@ -552,10 +552,18 @@ function readA2aPairs() {
   catch (e) { return []; }
 }
 
-// Telegram allowlist, same loader, same fail-closed shape: unreadable => nobody.
+// Telegram allowlist -- read from aegis.config.json, NOT from policy. The policy file is
+// committed and reviewable; a chat id is a per-installation identifier that must not be
+// published to git, so it lives beside the other per-install values here. Same fail-closed
+// shape as before: unreadable, missing or malformed => nobody, because a Telegram lane that
+// permits everyone on a bad read is worse than one that answers no one.
 function readTelegramChatIds() {
-  try { const pol = loadPolicyCanonical(); return Array.isArray(pol.telegramChatIds) ? pol.telegramChatIds.map(String) : []; }
-  catch (e) { return []; }
+  try {
+    const cfg = JSON.parse(fs.readFileSync(CFG, 'utf8'));
+    if (!Array.isArray(cfg.telegramChatIds)) return [];
+    // Same shape the policy validator enforced, kept here now that the validator is gone.
+    return cfg.telegramChatIds.map(String).filter((x) => /^-?[0-9]{5,20}$/.test(x));
+  } catch (e) { return []; }
 }
 
 let _mbCache = { v: 2, t: 0 };
@@ -1129,15 +1137,28 @@ const server = http.createServer(async (req, res) => {
     const cur = await runFleetctl(['policy', 'show', '--json']);
     let list; try { list = JSON.parse(cur.out || '{}').protectedAgents || []; } catch { return sendJson(res, { ok: false, error: 'cannot read policy (fleetctl policy show --json failed)' }, 500); }
     const on = list.includes(name);
-    const r = await runFleetctl(['policy', on ? 'unprotect' : 'protect', name, '--attest', attest]);
-    audit({ action: 'protect-toggle', name, verb: on ? 'unprotect' : 'protect', actor: actorOf(req), outcome: policyVerdict(r.code) });
-    let next = list;
-    if (r.code === 0 || r.code === 1) {
-      const rr = await runFleetctl(['policy', 'show', '--json']);
-      try { next = JSON.parse(rr.out || '{}').protectedAgents || list; } catch { /* keep prior */ }
-      const agent = agentByName(name); if (agent) { try { callAgent(agent, 'POST', '/protection', { protected: !on }, actorOf(req)); } catch { /* unreachable */ } }
-    }
-    return sendJson(res, { ok: r.code === 0, incomplete: r.code === 1, out: panelClean(r.out), protectedAgents: next });
+    const verb = on ? 'unprotect' : 'protect';
+    // A REQUEST, not a decision. This plane used to run `policy <verb>` itself, which worked
+    // only because it wrote its own untracked policy copy. With one committed policy file that
+    // same write would dirty a tracked file on a host with no push credentials: the change
+    // would never reach git, and the next Update plane would collide with it. So the panel now
+    // does what an agent already does -- ask -- and the CLI plus a commit decides. The attest
+    // phrase is kept as provenance for the request: who asked, in what words.
+    audit({ action: 'protect-request', name, verb, phrase: attest, actor: actorOf(req), outcome: 'requested' });
+    const agent = agentByName(name);
+    if (agent) { try { callAgent(agent, 'POST', '/protection', { request: verb }, actorOf(req)); } catch { /* unreachable */ } }
+    const required = 'I approve ' + (on ? 'unprotecting ' : 'protecting ') + name;
+    return sendJson(res, {
+      ok: true, requested: verb, protectedAgents: list,
+      out: 'REQUESTED: ' + verb + ' ' + name + ' -- nothing has changed yet.\n\n'
+         + 'This plane can request a protection change but not decide one. The policy file is\n'
+         + 'committed and reviewable, and this host cannot push, so a change made here would\n'
+         + 'never reach git and would collide with the next Update plane.\n\n'
+         + 'Complete it on the workstation:\n'
+         + '  node provision/bin/fleetctl.js policy ' + verb + ' ' + name + ' --attest "' + required + '"\n'
+         + '  git commit -am "policy: ' + verb + ' ' + name + '" && git push\n\n'
+         + 'then Update plane here, and this card will follow.',
+    });
   }
   // Which control plane is this? Two planes exist (hosted primary, workstation break-glass)
   // and an operator must be able to read which one they are commanding: same panel, same
