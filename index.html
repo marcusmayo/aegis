@@ -150,6 +150,10 @@
   #toolPanelR #advEndpoint{flex:1;min-width:250px;max-width:none}
   #toolPanelR .adv-body{width:100%;max-width:none;box-sizing:border-box;resize:vertical;min-height:56px}
   .mdl-sel{background:#0f0f0f;border:1px solid #2a2a2a;color:#eee;border-radius:5px;padding:3px 6px;font-family:monospace;font-size:calc(var(--uifs,12px) - 1px);max-width:100%}
+  /* pending-ceremony note: its OWN row under the controls. As an inline span between */
+  /* `guard:` and `web:` it widened whichever card had a ceremony pending and knocked */
+  /* the whole fleet row out of alignment. Empty -> zero height, so it costs nothing. */
+  [id^="protreq-"]{display:block;margin-top:6px;color:#fbbf24;cursor:pointer}
   .webtog{border:none;border-radius:5px;padding:2px 12px;font-weight:700;cursor:pointer;font-size:calc(var(--uifs,12px) - 1px);font-family:monospace}
   .webtog.on{background:#22c55e;color:#052e13}
   .webtog.off{background:#333;color:#aaa}
@@ -755,7 +759,7 @@ async function protGo(name){ const attest=($('#protattest-'+name)||{value:''}).v
   if(r&&(r.ok||r.incomplete)){ PROTLIST=r.protectedAgents||PROTLIST; for(const a of AGENTS) renderProt(a.name); }
   if(r&&r.incomplete){ const f=$('#protform-'+name); if(f){ f.style.display='block'; f.innerHTML='<div style="color:#eab308;white-space:pre-wrap;font-size:var(--uifs,12px)">INCOMPLETE \u2014 the policy gate applied and is enforcing; the Azure lock did not follow. The guard above shows policy, which is the source of truth; the resource lock is out of step until this is fixed.\n'+((r.out)||'')+'</div>'; } }
   else if(!r||!r.ok){ const f=$('#protform-'+name); if(f){ f.style.display='block'; f.innerHTML='<div style="color:#ef4444;white-space:pre-wrap;font-size:var(--uifs,12px)">'+((r&&r.out)||(r&&r.error)||'REFUSED / ERROR')+'</div>'; } } }
-async function loadProtAgent(a){ try{ const r=await api(a.name,'GET','/protection'); if(r.status!==200) return; const j=JSON.parse(r.body); const should=PROTLIST.includes(a.name); const el=$('#protreq-'+a.name); if(el) el.textContent=j.requested?(' \u00B7 '+j.requested+' requested \u2192 complete ceremony here'):''; if(!!j.protected!==should){ api(a.name,'POST','/protection',{protected:should}); } }catch(e){} }
+async function loadProtAgent(a){ try{ const r=await api(a.name,'GET','/protection'); if(r.status!==200) return; const j=JSON.parse(r.body); const should=PROTLIST.includes(a.name); const el=$('#protreq-'+a.name); if(el){ if(j.requested){ el.textContent=j.requested+' requested \u2014 click to complete the ceremony'; el.onclick=function(){ protForm(a.name); }; } else { el.textContent=''; el.onclick=null; } } if(!!j.protected!==should){ api(a.name,'POST','/protection',{protected:should}); } }catch(e){} }
 let auditOpen=false;
 // The ledger is a live surface: an action taken in another pane must show up without
 // closing and reopening this one, or the operator learns to distrust what it shows.
