@@ -415,11 +415,22 @@ let AGENTS = [], PALETTE = {};
 const $ = s => document.querySelector(s);
 
 async function api(agent, method, path, body){
-  const r = await fetch('/api/call/'+encodeURIComponent(agent), {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({method, path, body: body ?? null})
-  });
-  return r.json(); // {status, body}
+  // Always RESOLVES to {status, body}. It used to await fetch and r.json() bare, and either can
+  // reject -- a dropped tunnel, or a relay answering with an HTML error page rather than JSON.
+  // The rejection had no listener anywhere, so the caller's "sending..." simply stayed forever
+  // and a malformed request looked identical to a slow one. A failure is now a result.
+  let r;
+  try {
+    r = await fetch('/api/call/'+encodeURIComponent(agent), {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({method, path, body: body ?? null})
+    });
+  } catch (e) { return { status: 0, body: 'the plane could not be reached: ' + (e && e.message ? e.message : e) }; }
+  try { return await r.json(); }
+  catch (e) {
+    let txt = ''; try { txt = await r.text(); } catch (e2) { /* body already consumed or gone */ }
+    return { status: r.status || 0, body: 'the relay did not answer with JSON (HTTP ' + r.status + ')' + (txt ? ':\n' + txt.slice(0, 400) : '') };
+  }
 }
 function accentOf(agent){ const a=AGENTS.find(x=>x.name===agent); return (a&&a._accent)||'#c9a227'; }
 function log(agent, method, path, res){
@@ -1087,6 +1098,13 @@ const ENDPOINTS = [
   { label:'GET  /model  \u2014 current + available models',      method:'GET',    path:'/model',             body:'' },
   { label:'POST /model/select  \u2014 switch model',             method:'POST',   path:'/model/select',      body:'{\n  "slug": "openrouter/z-ai/glm-5.2"\n}' },
   { label:'GET  /pending  \u2014 intake queue (castor only)',    method:'GET',    path:'/pending',           body:'' },
+  // The async skill lane. The list above predates it, so the only way to ask an agent what it
+  // can do or what it has run was to know the path and type it into Custom -- which is how a
+  // job listing that had just started carrying its argv stayed invisible.
+  { label:'GET  /skills  \u2014 what this agent mounts',          method:'GET',    path:'/skills',            body:'' },
+  { label:'GET  /skill-jobs  \u2014 recent runs + their argv',    method:'GET',    path:'/skill-jobs?limit=10', body:'' },
+  { label:'GET  /skill-status/<id>  \u2014 one run (edit the id)', method:'PREFILL', path:'/skill-status/', body:'' },
+  { label:'GET  /auth-mode  \u2014 is the edge gate in force?',   method:'GET',    path:'/auth-mode',         body:'' },
   { label:'Custom\u2026  \u2014 type your own method + path',    method:'CUSTOM', path:'',                   body:'' },
 ];
 function advInit(){
@@ -1096,22 +1114,35 @@ function advInit(){
 }
 function advPick(){
   const e = ENDPOINTS[+$('#advEndpoint').value] || ENDPOINTS[0];
-  const custom = e.method === 'CUSTOM';
-  $('#advCustomRow').style.display = custom ? 'flex' : 'none';
-  $('#advBody').value = custom ? '' : e.body;
+  // CUSTOM opens an empty editable row; PREFILL opens the same row with the path already in it,
+  // for the endpoints that need one more thing from you (a job id). Everything else is fixed.
+  const editable = e.method === 'CUSTOM' || e.method === 'PREFILL';
+  $('#advCustomRow').style.display = editable ? 'flex' : 'none';
+  if (e.method === 'PREFILL') { $('#advMethod').value = 'GET'; $('#advPath').value = e.path; }
+  else if (e.method === 'CUSTOM') { $('#advPath').value = ''; }
+  $('#advBody').value = editable ? '' : e.body;
 }
 async function advSend(){
   const t = $('#target').value;
   if(!t){ $('#advOut').textContent = 'pick a Target agent (top of the console)'; return; }
   const e = ENDPOINTS[+$('#advEndpoint').value] || ENDPOINTS[0];
   let method, path;
-  if(e.method === 'CUSTOM'){ method = $('#advMethod').value; path = $('#advPath').value.trim(); if(!path){ $('#advOut').textContent = 'enter a path'; return; } }
+  if(e.method === 'CUSTOM' || e.method === 'PREFILL'){
+    method = $('#advMethod').value; path = $('#advPath').value.trim();
+    if(!path){ $('#advOut').textContent = 'enter a path'; return; }
+    // A method typed into the path box is the commonest slip and produces a 404 that reads
+    // like the endpoint is missing. Catch it here and say so rather than sending it.
+    if(/^(GET|POST|PUT|DELETE|PATCH)\b/i.test(path)){ $('#advOut').textContent = 'the path box takes only the path -- the method is the dropdown to its left. Try: ' + path.replace(/^\S+\s*/, ''); return; }
+    if(path[0] !== '/'){ $('#advOut').textContent = 'a path starts with / -- try /' + path; return; }
+  }
   else { method = e.method; path = e.path; }
   let body = null; const bt = $('#advBody').value.trim();
   if(method === 'POST' && bt){ try{ body = JSON.parse(bt); }catch{ $('#advOut').textContent = 'body is not valid JSON'; return; } }
   $('#advOut').textContent = 'sending\u2026';
-  const res = await api(t, method, path, body);
-  log(t, method, path, res);
+  let res;
+  try { res = await api(t, method, path, body); }
+  catch (e) { res = { status: 0, body: 'console error: ' + (e && e.message ? e.message : e) }; }
+  try { log(t, method, path, res); } catch (e) { /* the log line is decoration; never let it eat the answer */ }
   $('#advOut').textContent = method+' '+path+'  \u2192  HTTP '+res.status+'\n\n'+(res.body||'(empty)');
   $('#advOut').style.borderColor = (res.status>=200 && res.status<300) ? '#1c1c1c' : '#7f1d1d';
 }
