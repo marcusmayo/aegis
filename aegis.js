@@ -1449,7 +1449,7 @@ try { bootCfg = JSON.parse(fs.readFileSync(CFG, 'utf8')); } catch { /* loadAgent
 cfcred.resolve(bootCfg, () =>
   server.listen(PORT, HOST, () => {
     console.log(`Aegis on http://${HOST}:${PORT}  agents: ${loadAgents().map(a => a.name).join(', ') || '(none - fill aegis.config.json)'}  \u00b7  fleetctl: ${FLEET_IAC_ROOT || 'MISSING (set FLEET_IAC_ROOT or aegis.config.json fleetIacRoot)'}  \u00b7  cf: ${cfEnvProblem() ? 'NOT READY (' + cfEnvProblem() + ')' : 'ok \u00b7 token: ' + cfcred.state.source}`);
-    // Telegram door: read + chat only, allowlist from policy, off unless a bot token resolves.
+    // Telegram door: read + chat only, allowlist from aegis.config.json, off unless a bot token resolves.
     // Started AFTER the plane listens, and only when FLEET_IAC_ROOT is known (the allowlist
     // is policy); a plane without policy has no allowlist, so it has no Telegram either.
     if (FLEET_IAC_ROOT) {

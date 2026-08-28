@@ -304,7 +304,11 @@ function start(deps) {
   // bot (or none) must be legible in the journal and /api/plane, not discovered by silence.
   api('getMe').then((me) => {
     state.bot = (me && me.username) ? '@' + me.username : '(no username)';
-    log('on — bot ' + state.bot + ', token from ' + state.source + ', long-poll, allowlist from policy telegramChatIds');
+    // The allowlist moved out of the policy file when telegramChatIds was retired from it: a
+    // tracked, committed file must not carry a chat id. It now lives in the plane's own
+    // aegis.config.json. The behaviour was correct from that moment; this line was not, and a
+    // boot line that names the wrong source is how a wrong belief survives three weeks.
+    log('on — bot ' + state.bot + ', token from ' + state.source + ', long-poll, allowlist from aegis.config.json telegramChatIds');
     loop().catch((e) => { state.on = false; state.reason = 'loop died: ' + String(e.message || e); log(state.reason); });
   }).catch((e) => {
     state.on = false; state.reason = 'getMe failed (' + String(e.message || e) + ') — token invalid or Telegram unreachable; lane off';
