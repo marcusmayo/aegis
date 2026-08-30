@@ -852,7 +852,7 @@ async function fillProfileCheats(P){
     try{
       const r=await api(a.name,'GET','/skills');
       if(r.status===200 && skillsHtml===null){ const j=JSON.parse(r.body);
-        skillsHtml=((j.skills||[]).filter(sk=>sk.route!=='/run-e2e').map(sk=>'  <code class="skchip" onclick="invokeSkill(\''+esc(P)+'\',\''+esc(sk.method)+'\',\''+esc(sk.route)+'\',&quot;'+encodeURIComponent(JSON.stringify(sk.params||[]))+'&quot;)" title="click to run on the profile member matching the Target (else its first instance); output lands in the console log">'+esc(sk.method)+' '+esc(sk.route)+'</code>'+(sk.summary?(' <span class="muted">\u2014 '+esc(sk.summary)+'</span>'):'')).join('<br>')||'  (none declared)')+'<br><span class="muted">  listed from '+esc(a.name)+' \u00b7 a skill with no parameters RUNS on click; one declaring parameters FILLS the console for you to set and Send \u00b7 long-form runs still stream best on the agent\u2019s own page</span>'+(((j.skills||[]).some(sk=>sk.route==='/run-e2e'))?'<br><span class="muted">  /run-e2e is deliberately not clickable here \u2014 it reseeds demo state; run it only in a fresh agent container from the agent\u2019s own page</span>':'');
+        skillsHtml=((j.skills||[]).filter(sk=>sk.route!=='/run-e2e').map(sk=>'  <code class="skchip" onclick="invokeSkill(\''+esc(P)+'\',\''+esc(sk.method)+'\',\''+esc(sk.route)+'\',&quot;'+encodeURIComponent(JSON.stringify(sk.params||[]))+'&quot;)" title="click to run on the profile member matching the Target (else its first instance); output lands in the console log">'+esc(sk.method)+' '+esc(sk.route)+'</code>'+(sk.summary?(' <span class="muted">\u2014 '+esc(sk.summary)+'</span>'):'')).join('<br>')||'  (none declared)')+'<br><span class="muted">  listed from '+esc(a.name)+' \u00b7 a skill with no parameters RUNS on click; one declaring parameters FILLS THE PROMPT below for you to complete and Send \u00b7 long-form runs still stream best on the agent\u2019s own page</span>'+(((j.skills||[]).some(sk=>sk.route==='/run-e2e'))?'<br><span class="muted">  /run-e2e is deliberately not clickable here \u2014 it reseeds demo state; run it only in a fresh agent container from the agent\u2019s own page</span>':'');
       } else if(r.status===404){ sawLegacy=true; }
       if(dest===null){ const g=await api(a.name,'GET','/files/staged'); if(g.status===200){ try{ dest=JSON.parse(g.body).dest; }catch(e){} } }
     }catch(e){ /* unreachable member */ }
@@ -863,46 +863,47 @@ async function fillProfileCheats(P){
   h+='<u>import</u> <span class="muted">\u2014 every card: choose file \u2192 Stage \u2192 Staged \u2192 Process moves it to '+(dest?esc(dest):'the profile\u2019s stage_dest')+' and the pipeline takes over</span>';
   el.innerHTML=h;
 }
-// The FILL path: load the route and a body skeleton into the Advanced console, then stop. Every
-// declared constraint is shown beside its param, because a form offering free text into argv
-// would contradict the boot rule that refuses unconstrained pass-through.
-function fillSkillConsole(ag, method, route, ps){
+// The FILL path: write the route and its parameter keys into the CHAT PROMPT, focus it, then
+// stop. Values are left EMPTY -- every declared constraint is reported in the log beside its
+// param, because filling a value the operator did not choose would contradict the boot rule
+// that refuses unconstrained pass-through. The agent's chat lane runs a declared /run-* route
+// through the skills path, so the composer is now the one place a skill is invoked from.
+function fillSkillPrompt(ag, method, route, ps){
   selectTarget(ag.name);
-  // The fill lands in the ADVANCED panel, and the click almost always comes from the CHEATSHEET
-  // panel -- a different tool, on the other rail. Filling a surface the operator is not looking
-  // at reads as a dead click, which is exactly how this landed the first time. So: open Advanced
-  // (guarded, because openTool toggles and would close it if it were already open), and leave a
-  // line in the console log too, so the click answers where it was made.
-  try { if (typeof openTool === 'function' && activeToolR !== 'adv') openTool('adv'); } catch (e) { /* panel-only nicety */ }
-  try {
-    const ui = chatBubble(ag.name, 'skill ' + (method || 'GET').toUpperCase() + ' ' + route);
-    ui.meta.textContent = 'needs parameters';
-    ui.body.textContent = route + ' takes ' + ps.length + ' parameter(s) \u2014 filled into the Advanced console, NOT sent.\n'
-      + ps.map(function (q) { return '  ' + q.name + (q.required ? '  (required)' : ''); }).join('\n')
-      + '\nSet the values there and press Send.';
-  } catch (e) { /* log is optional */ }
-  const body = {};
-  for (const p of ps) body[p.name] = (p.enum && p.enum.length) ? p.enum[0] : '';
+  const line = route + ps.map(function (p) { return ' ' + p.name + '='; }).join('');
   const lines = ps.map(function (p) {
     const bits = [];
     if (p.required) bits.push('required');
     if (p.enum && p.enum.length) bits.push('one of: ' + p.enum.join(' | '));
     else if (p.pattern) bits.push('pattern ' + p.pattern);
     if (p.append === 'flag') bits.push('appends a flag');
+    if (p.split) bits.push('comma or space separated' + (p.maxItems ? ', max ' + p.maxItems : ''));
     return '  ' + p.name + (bits.length ? '  \u2014 ' + bits.join(' \u00b7 ') : '');
   });
-  const sel = document.getElementById('advEndpoint');
-  if (sel) {
-    let opt = Array.prototype.find.call(sel.options, function (o) { return o.value === route; });
-    if (!opt) { opt = new Option((method || 'POST') + '  ' + route + '  \u2014 declared skill', route); sel.add(opt); }
-    sel.value = route;
-    if (sel.onchange) sel.onchange();
-  }
-  const ta = document.getElementById('advBody');
-  if (ta) ta.value = JSON.stringify(body, null, 2);
-  const out = document.getElementById('advOut');
-  if (out) out.textContent = route + ' takes ' + ps.length + ' parameter(s) \u2014 filled below, NOT sent.\n' + lines.join('\n') + '\n\nEdit the values, then press Send.';
-  if (ta && ta.focus) ta.focus();
+  // The SAME shape string the agent itself prints when it refuses a chat invocation, so the
+  // panel and the agent teach one grammar rather than two.
+  const shape = ps.map(function (p) { return p.name + '=' + (p.enum ? p.enum.join('|') : '<value>'); }).join(' ');
+  // The click comes from the CHEATSHEET rail and the fill lands in the composer above the log --
+  // a different surface. So say where it went, in the log, rather than leave a dead-looking click.
+  try {
+    const ui = chatBubble(ag.name, 'skill ' + (method || 'GET').toUpperCase() + ' ' + route);
+    ui.meta.textContent = 'needs parameters';
+    ui.body.textContent = route + ' takes ' + ps.length + ' parameter(s) \u2014 written into the prompt above, NOT sent.\n'
+      + lines.join('\n')
+      + '\n' + route + ' ' + shape
+      + '\nA value containing spaces must be quoted: q="two words".'
+      + '\n\nComplete the values there and press Send prompt.';
+  } catch (e) { /* log is optional */ }
+  const el = document.getElementById('prompt');
+  if (!el) { return; }
+  el.value = line;
+  try { el.scrollIntoView({ block: 'nearest' }); } catch (e) { /* older browsers */ }
+  if (el.focus) el.focus();
+  // Caret just past the FIRST '=' so typing lands on the first value with no clicking.
+  try {
+    const at = ps.length ? (route.length + 1 + ps[0].name.length + 1) : line.length;
+    if (el.setSelectionRange) el.setSelectionRange(at, at);
+  } catch (e) { /* selection is a nicety */ }
 }
 
 // Run a listed skill from the panel: targets the current Target if it belongs to the
@@ -913,12 +914,13 @@ async function invokeSkill(profile, method, route, paramsEnc){
   const ag = AGENTS.find(x=>x.name===tgt && x.profile===profile) || AGENTS.find(x=>x.profile===profile);
   if(!ag){ return; }
   // Run simple, FILL complex. A declared param reaches argv, and the panel has no business
-  // inventing a value for it: clicking a param-taking skill loads the route and a body skeleton
-  // into the Advanced console with each constraint shown, and the operator presses Send. A click
-  // that spawned such a tool with nothing is how a skill runs with no action at all.
+  // inventing a value for it: clicking a param-taking skill writes the route and its parameter
+  // keys into the chat prompt with each constraint reported in the log, and the operator
+  // completes them and presses Send. A click that spawned such a tool with nothing is how a
+  // skill runs with no action at all.
   let ps = [];
   try { ps = paramsEnc ? JSON.parse(decodeURIComponent(paramsEnc)) : []; } catch (e) { ps = []; }
-  if (ps.length) { return fillSkillConsole(ag, method, route, ps); }
+  if (ps.length) { return fillSkillPrompt(ag, method, route, ps); }
   const ui = chatBubble(ag.name, 'skill '+(method||'GET').toUpperCase()+' '+route);
   const t0 = Date.now(); let live = true;
   const tick = setInterval(function(){ if(live) ui.meta.innerHTML = '<span class="spin"></span>running \u00b7 ' + Math.round((Date.now()-t0)/1000) + 's'; }, 500);
