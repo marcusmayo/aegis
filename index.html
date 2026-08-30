@@ -868,6 +868,19 @@ async function fillProfileCheats(P){
 // would contradict the boot rule that refuses unconstrained pass-through.
 function fillSkillConsole(ag, method, route, ps){
   selectTarget(ag.name);
+  // The fill lands in the ADVANCED panel, and the click almost always comes from the CHEATSHEET
+  // panel -- a different tool, on the other rail. Filling a surface the operator is not looking
+  // at reads as a dead click, which is exactly how this landed the first time. So: open Advanced
+  // (guarded, because openTool toggles and would close it if it were already open), and leave a
+  // line in the console log too, so the click answers where it was made.
+  try { if (typeof openTool === 'function' && activeToolR !== 'adv') openTool('adv'); } catch (e) { /* panel-only nicety */ }
+  try {
+    const ui = chatBubble(ag.name, 'skill ' + (method || 'GET').toUpperCase() + ' ' + route);
+    ui.meta.textContent = 'needs parameters';
+    ui.body.textContent = route + ' takes ' + ps.length + ' parameter(s) \u2014 filled into the Advanced console, NOT sent.\n'
+      + ps.map(function (q) { return '  ' + q.name + (q.required ? '  (required)' : ''); }).join('\n')
+      + '\nSet the values there and press Send.';
+  } catch (e) { /* log is optional */ }
   const body = {};
   for (const p of ps) body[p.name] = (p.enum && p.enum.length) ? p.enum[0] : '';
   const lines = ps.map(function (p) {
