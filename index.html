@@ -852,7 +852,7 @@ async function fillProfileCheats(P){
     try{
       const r=await api(a.name,'GET','/skills');
       if(r.status===200 && skillsHtml===null){ const j=JSON.parse(r.body);
-        skillsHtml=((j.skills||[]).filter(sk=>sk.route!=='/run-e2e').map(sk=>'  <code class="skchip" onclick="invokeSkill(\''+esc(P)+'\',\''+esc(sk.method)+'\',\''+esc(sk.route)+'\')" title="click to run on the profile member matching the Target (else its first instance); output lands in the console log">'+esc(sk.method)+' '+esc(sk.route)+'</code>'+(sk.summary?(' <span class="muted">\u2014 '+esc(sk.summary)+'</span>'):'')).join('<br>')||'  (none declared)')+'<br><span class="muted">  listed from '+esc(a.name)+' \u00b7 click a skill to run it here \u00b7 long-form runs still stream best on the agent\u2019s own page</span>'+(((j.skills||[]).some(sk=>sk.route==='/run-e2e'))?'<br><span class="muted">  /run-e2e is deliberately not clickable here \u2014 it reseeds demo state; run it only in a fresh agent container from the agent\u2019s own page</span>':'');
+        skillsHtml=((j.skills||[]).filter(sk=>sk.route!=='/run-e2e').map(sk=>'  <code class="skchip" onclick="invokeSkill(\''+esc(P)+'\',\''+esc(sk.method)+'\',\''+esc(sk.route)+'\',&quot;'+encodeURIComponent(JSON.stringify(sk.params||[]))+'&quot;)" title="click to run on the profile member matching the Target (else its first instance); output lands in the console log">'+esc(sk.method)+' '+esc(sk.route)+'</code>'+(sk.summary?(' <span class="muted">\u2014 '+esc(sk.summary)+'</span>'):'')).join('<br>')||'  (none declared)')+'<br><span class="muted">  listed from '+esc(a.name)+' \u00b7 click a skill to run it here \u00b7 long-form runs still stream best on the agent\u2019s own page</span>'+(((j.skills||[]).some(sk=>sk.route==='/run-e2e'))?'<br><span class="muted">  /run-e2e is deliberately not clickable here \u2014 it reseeds demo state; run it only in a fresh agent container from the agent\u2019s own page</span>':'');
       } else if(r.status===404){ sawLegacy=true; }
       if(dest===null){ const g=await api(a.name,'GET','/files/staged'); if(g.status===200){ try{ dest=JSON.parse(g.body).dest; }catch(e){} } }
     }catch(e){ /* unreachable member */ }
@@ -863,13 +863,49 @@ async function fillProfileCheats(P){
   h+='<u>import</u> <span class="muted">\u2014 every card: choose file \u2192 Stage \u2192 Staged \u2192 Process moves it to '+(dest?esc(dest):'the profile\u2019s stage_dest')+' and the pipeline takes over</span>';
   el.innerHTML=h;
 }
+// The FILL path: load the route and a body skeleton into the Advanced console, then stop. Every
+// declared constraint is shown beside its param, because a form offering free text into argv
+// would contradict the boot rule that refuses unconstrained pass-through.
+function fillSkillConsole(ag, method, route, ps){
+  selectTarget(ag.name);
+  const body = {};
+  for (const p of ps) body[p.name] = (p.enum && p.enum.length) ? p.enum[0] : '';
+  const lines = ps.map(function (p) {
+    const bits = [];
+    if (p.required) bits.push('required');
+    if (p.enum && p.enum.length) bits.push('one of: ' + p.enum.join(' | '));
+    else if (p.pattern) bits.push('pattern ' + p.pattern);
+    if (p.append === 'flag') bits.push('appends a flag');
+    return '  ' + p.name + (bits.length ? '  \u2014 ' + bits.join(' \u00b7 ') : '');
+  });
+  const sel = document.getElementById('advEndpoint');
+  if (sel) {
+    let opt = Array.prototype.find.call(sel.options, function (o) { return o.value === route; });
+    if (!opt) { opt = new Option((method || 'POST') + '  ' + route + '  \u2014 declared skill', route); sel.add(opt); }
+    sel.value = route;
+    if (sel.onchange) sel.onchange();
+  }
+  const ta = document.getElementById('advBody');
+  if (ta) ta.value = JSON.stringify(body, null, 2);
+  const out = document.getElementById('advOut');
+  if (out) out.textContent = route + ' takes ' + ps.length + ' parameter(s) \u2014 filled below, NOT sent.\n' + lines.join('\n') + '\n\nEdit the values, then press Send.';
+  if (ta && ta.focus) ta.focus();
+}
+
 // Run a listed skill from the panel: targets the current Target if it belongs to the
 // profile, else the profile's first instance. Full output lands as a console bubble.
-async function invokeSkill(profile, method, route){
+async function invokeSkill(profile, method, route, paramsEnc){
   if(route===undefined){ route=method; method='GET'; }   // tolerate a 2-arg caller from a stale cached page
   const tgt = document.getElementById('target').value;
   const ag = AGENTS.find(x=>x.name===tgt && x.profile===profile) || AGENTS.find(x=>x.profile===profile);
   if(!ag){ return; }
+  // Run simple, FILL complex. A declared param reaches argv, and the panel has no business
+  // inventing a value for it: clicking a param-taking skill loads the route and a body skeleton
+  // into the Advanced console with each constraint shown, and the operator presses Send. A click
+  // that spawned such a tool with nothing is how a skill runs with no action at all.
+  let ps = [];
+  try { ps = paramsEnc ? JSON.parse(decodeURIComponent(paramsEnc)) : []; } catch (e) { ps = []; }
+  if (ps.length) { return fillSkillConsole(ag, method, route, ps); }
   const ui = chatBubble(ag.name, 'skill '+(method||'GET').toUpperCase()+' '+route);
   const t0 = Date.now(); let live = true;
   const tick = setInterval(function(){ if(live) ui.meta.innerHTML = '<span class="spin"></span>running \u00b7 ' + Math.round((Date.now()-t0)/1000) + 's'; }, 500);
