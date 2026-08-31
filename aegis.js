@@ -1138,27 +1138,32 @@ const server = http.createServer(async (req, res) => {
     let list; try { list = JSON.parse(cur.out || '{}').protectedAgents || []; } catch { return sendJson(res, { ok: false, error: 'cannot read policy (fleetctl policy show --json failed)' }, 500); }
     const on = list.includes(name);
     const verb = on ? 'unprotect' : 'protect';
-    // A REQUEST, not a decision. This plane used to run `policy <verb>` itself, which worked
-    // only because it wrote its own untracked policy copy. With one committed policy file that
-    // same write would dirty a tracked file on a host with no push credentials: the change
-    // would never reach git, and the next Update plane would collide with it. So the panel now
-    // does what an agent already does -- ask -- and the CLI plus a commit decides. The attest
-    // phrase is kept as provenance for the request: who asked, in what words.
-    audit({ action: 'protect-request', name, verb, phrase: attest, actor: actorOf(req), outcome: 'requested' });
-    const agent = agentByName(name);
-    if (agent) { try { callAgent(agent, 'POST', '/protection', { request: verb }, actorOf(req)); } catch { /* unreachable */ } }
     const required = 'I approve ' + (on ? 'unprotecting ' : 'protecting ') + name;
-    return sendJson(res, {
-      ok: true, requested: verb, protectedAgents: list,
-      out: 'REQUESTED: ' + verb + ' ' + name + ' -- nothing has changed yet.\n\n'
-         + 'This plane can request a protection change but not decide one. The policy file is\n'
-         + 'committed and reviewable, and this host cannot push, so a change made here would\n'
-         + 'never reach git and would collide with the next Update plane.\n\n'
-         + 'Complete it on the workstation:\n'
-         + '  node provision/bin/fleetctl.js policy ' + verb + ' ' + name + ' --attest "' + required + '"\n'
-         + '  git commit -am "policy: ' + verb + ' ' + name + '" && git push\n\n'
-         + 'then Update plane here, and this card will follow.',
-    });
+    // The phrase is checked here so a mismatch is refused and ledgered without spawning anything;
+    // the CLI checks it again, which is the gate that actually counts.
+    if (attest !== required) {
+      audit({ action: 'protect', name, verb, phrase: attest, actor: actorOf(req), outcome: 'refused: phrase mismatch' });
+      return sendJson(res, { ok: false, protectedAgents: list, out: 'REFUSED \u2014 type exactly: ' + required }, 400);
+    }
+    // The plane DECIDES. It writes provision/aegis.policy.jsonc in its own fleet checkout and
+    // syncs the Azure lock, both through the same CLI the workstation uses, so the attestation
+    // and the outcome land in the ledger the same way.
+    //
+    // The cost, stated where it matters rather than in the panel: that file is TRACKED and this
+    // host cannot push, so the change is real here and in Azure but does not reach git. The
+    // plane's checkout now carries a local modification, and Update plane pulls --ff-only, which
+    // will refuse once a commit from elsewhere touches the same file. /api/plane/update names
+    // that file when it happens instead of reporting a bare "diverged checkout".
+    const r = await runFleetctl(['policy', verb, name, '--attest', required]);
+    const after = await runFleetctl(['policy', 'show', '--json']);
+    let list2 = list; try { list2 = JSON.parse(after.out || '{}').protectedAgents || list; } catch { /* keep the pre-read */ }
+    const done = r.code === 0 && list2.includes(name) === !on;
+    audit({ action: 'protect', name, verb, phrase: required, actor: actorOf(req), outcome: done ? 'done' : ('failed: rc=' + r.code) });
+    // Push the new truth to the agent so its own shield follows without waiting for a poll.
+    const agent = agentByName(name);
+    if (agent) { try { callAgent(agent, 'POST', '/protection', { protected: list2.includes(name) }, actorOf(req)); } catch { /* unreachable */ } }
+    const tail = String(r.out || '').trim().split('\n').filter(Boolean).slice(-2).join('\n');
+    return sendJson(res, { ok: done, protectedAgents: list2, out: tail || (done ? verb + ' ' + name + ': done' : verb + ' ' + name + ': FAILED') });
   }
   // Which control plane is this? Two planes exist (hosted primary, workstation break-glass)
   // and an operator must be able to read which one they are commanding: same panel, same
@@ -1232,7 +1237,17 @@ const server = http.createServer(async (req, res) => {
       const dir = r === 'aegis' ? __dirname : FLEET_IAC_ROOT;
       const p = spawnSync('git', ['-C', dir, 'pull', '--ff-only', '-q'], { encoding: 'utf8', timeout: 120000 });
       const head = spawnSync('git', ['-C', dir, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' });
-      pulls[r] = { ok: p.status === 0, before: before[r] && before[r].local, after: (head.stdout || '').trim(), note: (p.stderr || p.stdout || '').trim().split('\n').filter(Boolean).slice(-1)[0] || '' };
+      // A pull that refuses is almost always a locally-modified TRACKED file, and the plane
+      // creates exactly one of those: an attested protection change writes aegis.policy.jsonc in
+      // a checkout that cannot push. Name the files rather than leave the operator with
+      // "diverged checkout?" and nothing to act on.
+      let note = (p.stderr || p.stdout || '').trim().split('\n').filter(Boolean).slice(-1)[0] || '';
+      if (p.status !== 0) {
+        const st = spawnSync('git', ['-C', dir, 'status', '--porcelain'], { encoding: 'utf8' });
+        const mods = (st.stdout || '').split('\n').filter((l) => l.slice(0, 2).trim() === 'M').map((l) => l.slice(3)).filter(Boolean);
+        if (mods.length) note += ' | locally modified here, so the pull cannot fast-forward: ' + mods.join(', ');
+      }
+      pulls[r] = { ok: p.status === 0, before: before[r] && before[r].local, after: (head.stdout || '').trim(), note };
       if (p.status !== 0) failed = true;
     }
     if (failed) {

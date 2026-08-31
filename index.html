@@ -779,11 +779,9 @@ function protForm(name){ const on=PROTLIST.includes(name); const req='I approve 
   const inp=$('#protattest-'+name); inp.oninput=function(){ const t=inp.value.trim(); const h=$('#prothint-'+name); const g=$('#protgo-'+name); const ok=t===req; if(g) g.disabled=!ok; if(!h) return; if(ok){ h.style.color='#22c55e'; h.textContent='\u2713 phrase matches \u2014 '+(on?'Unprotect':'Protect')+' enabled'; } else if(t){ h.style.color='#ef4444'; h.textContent='MISMATCH \u2014 type exactly: '+req; } else { h.style.color=''; h.textContent='type exactly: '+req; } }; }
 async function protGo(name){ const attest=($('#protattest-'+name)||{value:''}).value||''; const r=await(await fetch('/api/policy/protect-toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,attest})})).json();
   if(r&&(r.ok||r.incomplete)){ PROTLIST=r.protectedAgents||PROTLIST; for(const a of AGENTS) renderProt(a.name); }
-  // The plane REQUESTS a protection change; it cannot decide one, and it answers with the exact
-  // workstation commands that will. That answer used to be rendered only on `incomplete`, so the
-  // ordinary path -- ok:true, requested -- showed the operator nothing at all: attest, click,
-  // silence. Show what the plane said whenever it says anything.
-  if(r&&r.ok&&r.requested&&r.out){ const f=$('#protform-'+name); if(f){ f.style.display='block'; f.innerHTML='<div style="color:#eab308;white-space:pre-wrap;font-size:var(--uifs,12px)">'+esc(r.out)+'</div>'; } loadProtAgent({name}); return; }
+  // The plane completes the change. One line of result, not an essay: the guard above is the
+  // answer, and the card follows immediately because the plane pushes the new state to the agent.
+  if(r&&r.ok){ const f=$('#protform-'+name); if(f){ f.style.display='none'; f.innerHTML=''; } PROTLIST_TS=0; loadProtAgent({name}); log(name,'POST','/api/policy/protect-toggle',{status:200,body:String(r.out||'')}); return; }
   if(r&&r.incomplete){ const f=$('#protform-'+name); if(f){ f.style.display='block'; f.innerHTML='<div style="color:#eab308;white-space:pre-wrap;font-size:var(--uifs,12px)">INCOMPLETE \u2014 the policy gate applied and is enforcing; the Azure lock did not follow. The guard above shows policy, which is the source of truth; the resource lock is out of step until this is fixed.\n'+((r.out)||'')+'</div>'; } }
   else if(!r||!r.ok){ const f=$('#protform-'+name); if(f){ f.style.display='block'; f.innerHTML='<div style="color:#ef4444;white-space:pre-wrap;font-size:var(--uifs,12px)">'+((r&&r.out)||(r&&r.error)||'REFUSED / ERROR')+'</div>'; } } }
 // Which commit is this agent RUNNING -- asked of the agent, never inferred from what a rebuild
