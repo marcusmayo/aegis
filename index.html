@@ -525,7 +525,7 @@ async function loadFleet(){
       + '<span class="minipill" id="minipend-'+a.name+'" title="castor intake queue \u2014 items already processed, awaiting review; click to dump GET /pending"></span></div>'
       + '<div class="row mdlrow"><span class="ctl" id="mdl-'+a.name+'"></span></div>'
       + '<div id="ctl-'+a.name+'" style="margin-top:6px"><span id="prot-'+a.name+'"></span><span class="ctl" id="web-'+a.name+'" style="margin-left:12px"></span><div id="protformslot-'+a.name+'"></div></div>'
-      + '<div class="row sect" style="min-width:0"><span class="lbl">import:</span><input type="file" multiple id="impf-'+a.name+'" class="file" style="flex:1 1 0%;width:0;min-width:0"></div>'
+      + '<div class="row sect" style="min-width:0"><span class="lbl">import:</span><input type="file" multiple id="impf-'+a.name+'" class="file" onchange="impStage(\''+a.name+'\')" style="flex:1 1 0%;width:0;min-width:0" title="Choosing files stages them straight away. Staging only uploads to a holding area \u2014 nothing enters the pipeline until you press Process"></div>'
       + '<div class="row indent"><button class="webtog off" onclick="impStage(\''+a.name+'\')" title="Upload the chosen file to this agent\u2019s staging area">Stage</button><button class="webtog off" onclick="impList(\''+a.name+'\')" title="List staged uploads \u2014 files waiting for you to click Process (distinct from the intake queue)">Staged</button><button class="webtog off" onclick="impProcAll(\''+a.name+'\')" title="Move every staged file into this profile\u2019s pipeline dir, one call each, stopping on the first failure. Staging is the operator\u2019s decision point - this makes it one click instead of one per file">Process all</button></div>'
       + '<div class="row indent" id="impl-'+a.name+'" style="display:none;flex-wrap:wrap"></div>'
       + (a.profile==='keel' ? '<div class="row"><span class="lbl">exports:</span><span style="display:flex;gap:14px;flex-wrap:wrap;min-width:0;align-items:center"><a href="#" onclick="csExport(\''+a.name+'\',\'/export\');return false" style="color:#8ab4f8;text-decoration:none">portfolio</a><a href="#" onclick="csExport(\''+a.name+'\',\'/export-multisource\');return false" style="color:#8ab4f8;text-decoration:none">multisource</a><a href="#" onclick="csExport(\''+a.name+'\',\'/export-reconcile\');return false" style="color:#8ab4f8;text-decoration:none">reconcile</a></span></div>' : '')
@@ -1080,22 +1080,34 @@ async function impList(agent){
   }catch(e){ el.textContent='parse error'; }
 }
 async function impProc(agent,n){ const r=await api(agent,'POST','/files/process',{name:n}); log(agent,'POST','/files/process '+n,r); impList(agent); }
-// Process every staged file. Sequential and STOPS on the first failure: a half-moved batch with
-// a silent gap in the middle is worse than a short one that says where it stopped.
+// Process every staged file. It used to stop on the first non-200 so a half-moved batch could not
+// hide a gap -- but the commonest non-200 is 404 'not staged', which means the file is ALREADY
+// GONE: a second click, or a run overlapping an earlier one, works from a list that went stale
+// while it was being consumed. Aborting the batch over work that is finished is the wrong answer.
+// So: a 404 is SKIPPED, a real failure is recorded and the batch continues, and the summary names
+// every file that failed. Nothing is silent; nothing is abandoned because of something else.
+const PROCALL=new Set();
 async function impProcAll(agent){
-  const r=await api(agent,'GET','/files/staged');
-  if(r.status!==200){ log(agent,'GET','/files/staged',r); return; }
-  let files=[]; try{ files=(JSON.parse(r.body).files||[]).map(x=>x.name); }catch(e){ return; }
-  if(!files.length){ log(agent,'note','',{status:0,body:'nothing staged'}); return; }
-  let done=0;
-  for(const n of files){
-    const p=await api(agent,'POST','/files/process',{name:n});
-    log(agent,'POST','/files/process '+n,p);
-    if(p.status!==200){ log(agent,'note','',{status:0,body:'stopped after '+done+' of '+files.length+' \u2014 '+n+' failed; the rest are still staged'}); break; }
-    done++;
-  }
-  if(done===files.length) log(agent,'note','',{status:0,body:'processed '+done+' of '+files.length});
-  impList(agent);
+  if(PROCALL.has(agent)){ log(agent,'note','',{status:0,body:'already processing this agent \u2014 ignoring the second click'}); return; }
+  PROCALL.add(agent);
+  try{
+    const r=await api(agent,'GET','/files/staged');
+    if(r.status!==200){ log(agent,'GET','/files/staged',r); return; }
+    let files=[]; try{ files=(JSON.parse(r.body).files||[]).map(x=>x.name); }catch(e){ return; }
+    if(!files.length){ log(agent,'note','',{status:0,body:'nothing staged'}); return; }
+    let done=0; const skipped=[], failed=[];
+    for(const n of files){
+      const p=await api(agent,'POST','/files/process',{name:n});
+      log(agent,'POST','/files/process '+n,p);
+      if(p.status===200){ done++; continue; }
+      if(p.status===404){ skipped.push(n); continue; }   // already processed -- not a failure
+      failed.push(n);
+    }
+    let msg='processed '+done+' of '+files.length;
+    if(skipped.length) msg+=' \u00b7 '+skipped.length+' already gone';
+    if(failed.length)  msg+=' \u00b7 '+failed.length+' FAILED: '+failed.join(', ');
+    log(agent,'note','',{status:0,body:msg});
+  } finally { PROCALL.delete(agent); impList(agent); }
 }
 
 async function loadWeb(a){
