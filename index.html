@@ -530,6 +530,7 @@ async function loadFleet(){
       + '<div class="row indent" id="impl-'+a.name+'" style="display:none;flex-wrap:wrap"></div>'
       + (a.profile==='keel' ? '<div class="row"><span class="lbl">exports:</span><span style="display:flex;gap:14px;flex-wrap:wrap;min-width:0;align-items:center"><a href="#" onclick="csExport(\''+a.name+'\',\'/export\');return false" style="color:#8ab4f8;text-decoration:none">portfolio</a><a href="#" onclick="csExport(\''+a.name+'\',\'/export-multisource\');return false" style="color:#8ab4f8;text-decoration:none">multisource</a><a href="#" onclick="csExport(\''+a.name+'\',\'/export-reconcile\');return false" style="color:#8ab4f8;text-decoration:none">reconcile</a></span></div>' : '')
       + '<div class="row sect" id="rc-'+a.name+'">probing&hellip;</div>'
+      + '<div class="row" id="bp-'+a.name+'"></div>'
       + '<div class="row" id="rx-'+a.name+'"></div>'
       + '<div class="row"><a class="agent-link" href="https://'+a.host+'" target="_blank" rel="noopener">&#8599; open '+a.host+'</a></div>';
     $('#fleet').appendChild(card);
@@ -722,7 +723,7 @@ async function probe(a){
   } else {
     rc.innerHTML = '<span class="st-bad">unreachable / auth failed (HTTP '+color.status+')</span> '+(color.body||'').slice(0,80);
   }
-  if(ok){ loadModel(a); loadWeb(a); loadProtAgent(a); }
+  if(ok){ loadModel(a); loadWeb(a); loadProtAgent(a); loadBuild(a); }
   loadProtList();
   // Pending-queue visibility (count only -- REVIEW stays in the agent's own webchat, per the
   // control-plane/agent domain division). Generic: any agent exposing GET /pending shows a live
@@ -759,6 +760,57 @@ async function protGo(name){ const attest=($('#protattest-'+name)||{value:''}).v
   if(r&&(r.ok||r.incomplete)){ PROTLIST=r.protectedAgents||PROTLIST; for(const a of AGENTS) renderProt(a.name); }
   if(r&&r.incomplete){ const f=$('#protform-'+name); if(f){ f.style.display='block'; f.innerHTML='<div style="color:#eab308;white-space:pre-wrap;font-size:var(--uifs,12px)">INCOMPLETE \u2014 the policy gate applied and is enforcing; the Azure lock did not follow. The guard above shows policy, which is the source of truth; the resource lock is out of step until this is fixed.\n'+((r.out)||'')+'</div>'; } }
   else if(!r||!r.ok){ const f=$('#protform-'+name); if(f){ f.style.display='block'; f.innerHTML='<div style="color:#ef4444;white-space:pre-wrap;font-size:var(--uifs,12px)">'+((r&&r.out)||(r&&r.error)||'REFUSED / ERROR')+'</div>'; } } }
+// Which commit is this agent RUNNING -- asked of the agent, never inferred from what a rebuild
+// was told to build. Its own row: the rc line above is rewritten by syncAccents every 10s, so
+// anything written there is erased on the next accent change.
+async function loadBuild(a){
+  const el = $('#bp-'+a.name);
+  if(!el) return;
+  let r; try{ r = await api(a.name,'GET','/build'); }catch(e){ return; }
+  if(r.status !== 200){
+    a._commit = null;
+    el.innerHTML = '<span class="lbl">build:</span> <span class="muted">'
+      + (r.status===404 ? 'not reported \u2014 rebuild this agent to mount GET /build' : 'unavailable (HTTP '+r.status+')')
+      + '</span>';
+    markProfileDrift();
+    return;
+  }
+  let j=null; try{ j = JSON.parse(r.body); }catch(e){}
+  const commit = (j && typeof j.commit === 'string') ? j.commit : null;
+  a._commit = commit;
+  if(!commit){
+    el.innerHTML = '<span class="lbl">build:</span> <span class="muted">unstamped image \u2014 built before provenance landed</span>';
+  } else if(/-dirty$/.test(commit)){
+    el.innerHTML = '<span class="lbl">build:</span> <span class="st-bad">'+esc(commit)
+      + '</span> <span class="muted">\u2014 built from UNCOMMITTED code; it is not the commit it names</span>';
+  } else {
+    el.innerHTML = '<span class="lbl">build:</span> <code>'+esc(a.profile)+' '+esc(commit)+'</code>';
+  }
+  markProfileDrift();
+}
+
+// Two agents on one profile must be running one commit. Divergence is the thing worth SEEING,
+// because it is invisible in every other panel signal -- both cards read green either way.
+function markProfileDrift(){
+  const byProfile = {};
+  for(const a of AGENTS){ if(a && a._commit){ (byProfile[a.profile] = byProfile[a.profile] || []).push(a); } }
+  for(const prof of Object.keys(byProfile)){
+    const group = byProfile[prof];
+    const diverged = group.length > 1 && group.some(x => x._commit !== group[0]._commit);
+    for(const a of group){
+      const el = $('#bp-'+a.name);
+      if(!el) continue;
+      const tail = el.querySelector('.drift');
+      if(diverged && !tail){
+        const s = document.createElement('span');
+        s.className = 'drift st-bad';
+        s.textContent = '  \u2014 DRIFT: ' + prof + ' agents are not on one commit';
+        el.appendChild(s);
+      } else if(!diverged && tail){ tail.remove(); }
+    }
+  }
+}
+
 async function loadProtAgent(a){ try{ const r=await api(a.name,'GET','/protection'); if(r.status!==200) return; const j=JSON.parse(r.body); const should=PROTLIST.includes(a.name); const el=$('#protreq-'+a.name); if(el){ if(j.requested){ el.textContent=j.requested+' requested \u2014 click to complete the ceremony'; el.onclick=function(){ protForm(a.name); }; } else { el.textContent=''; el.onclick=null; } } if(!!j.protected!==should || j.requested){ api(a.name,'POST','/protection',{protected:should}); } }catch(e){} }
 let auditOpen=false;
 // The ledger is a live surface: an action taken in another pane must show up without
