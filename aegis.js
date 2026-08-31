@@ -157,6 +157,24 @@ initChain();
 // (actor = verified caller, onBehalfOf = our unverified claim). Collapsing them into
 // one field would produce a confident, unfalsifiable identity -- the same failure as
 // os.userInfo(), one layer down. The trust boundary stays visible in the ledger.
+// The relay must never be tighter than the endpoint it relays to. A flat 10s
+// here reported FAILED in the panel while the agent completed the work normally:
+// /files/process bounds its own classifier at 60s and answers verdict:pending on
+// timeout, and a 928 KB photo measured 9.97s agent-side. Image reading has since
+// grown an orientation search and a second grid pass, so the gap widened.
+//
+// A slow route's bound must EXCEED the endpoint's own, or the relay gives up
+// before the endpoint can deliver the answer it was going to give anyway.
+const RELAY_TIMEOUT_MS = 10000;
+const RELAY_SLOW_ROUTES = [
+  [/^\/files\/process\b/,     90000],  // OCR: orientation search + grid read, 60s agent-side
+  [/^\/pending\/interpret\b/, 90000],  // raw-image egress to a vision model
+];
+function relayTimeoutMs(apiPath) {
+  for (const [re, ms] of RELAY_SLOW_ROUTES) if (re.test(String(apiPath || ''))) return ms;
+  return RELAY_TIMEOUT_MS;
+}
+
 function callAgent(agent, method, apiPath, body, onBehalfOf) {
   return new Promise((resolve) => {
     const data = body != null ? JSON.stringify(body) : null;
@@ -177,7 +195,8 @@ function callAgent(agent, method, apiPath, body, onBehalfOf) {
       r.on('end', () => resolve({ status: r.statusCode, body: buf }));
     });
     req.on('error', (e) => resolve({ status: 0, body: String(e.message) }));
-    req.setTimeout(10000, () => { req.destroy(); resolve({ status: 0, body: 'timeout' }); });
+    const tmo = relayTimeoutMs(apiPath);
+    req.setTimeout(tmo, () => { req.destroy(); resolve({ status: 0, body: 'timeout after ' + tmo + 'ms' }); });
     if (data) req.write(data);
     req.end();
   });
