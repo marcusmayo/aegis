@@ -763,7 +763,13 @@ async function loadProtList(){
   try { return await PROTLIST_INFLIGHT; } finally { PROTLIST_INFLIGHT=null; }
 }
 function renderProt(name){ const el=$('#prot-'+name); if(!el) return; const on=PROTLIST.includes(name);
-  el.innerHTML='<span class="muted">guard:</span> <button class="webtog '+(on?'on':'off')+'" title="'+(on?'PROTECTED \u2014 decommission is policy-refused; click to run the attested unprotect ceremony':'no guard \u2014 click to run the attested protect ceremony')+'" onclick="protForm(\''+name+'\')">'+(on?'ON':'OFF')+'</button><span id="protreq-'+name+'" class="muted"></span>'; const fs=$('#protformslot-'+name); if(fs) fs.innerHTML='<div id="protform-'+name+'" style="display:none;margin-top:6px"></div>'; }
+  el.innerHTML='<span class="muted">guard:</span> <button class="webtog '+(on?'on':'off')+'" title="'+(on?'PROTECTED \u2014 decommission is policy-refused; click to run the attested unprotect ceremony':'no guard \u2014 click to run the attested protect ceremony')+'" onclick="protForm(\''+name+'\')">'+(on?'ON':'OFF')+'</button><span id="protreq-'+name+'" class="muted"></span>';
+  // Do NOT rebuild an OPEN form. This function runs on every policy read, and protGo renders the
+  // plane's answer into that form -- so recreating it here wiped the explanation within the same
+  // click, and the operator saw an attestation that appeared to do nothing. A closed form is
+  // still refreshed, because the required phrase changes when the policy flips.
+  const fs=$('#protformslot-'+name); const cur=$('#protform-'+name);
+  if(fs && !(cur && cur.style && cur.style.display!=='none')) fs.innerHTML='<div id="protform-'+name+'" style="display:none;margin-top:6px"></div>'; }
 function protForm(name){ const on=PROTLIST.includes(name); const req='I approve '+(on?'unprotecting':'protecting')+' '+name; const f=$('#protform-'+name); if(!f) return; if(f.style.display!=='none'){ f.style.display='none'; return; }
   f.style.display='block';
   f.innerHTML='<div class="muted" style="font-size:var(--uifs,12px)">'+(on?'Unprotect':'Protect')+' \u2014 the attested ceremony runs here; refusals ledger like every other attempt.</div>'
