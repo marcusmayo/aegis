@@ -1860,6 +1860,14 @@ async function syncAccents(){
 }
 setInterval(syncAccents, 10000);
 
+// Protection was read only on page load and on Refresh fleet, so a request raised on an agent's
+// OWN page -- the only place one can still be raised, now that the panel completes the ceremony
+// outright -- sat unseen on the card until someone reloaded. Poll it the way the accents are
+// polled. The policy read is awaited ONCE up front: loadProtAgent would otherwise re-enter it
+// mid-loop, and a real fetch there re-renders every card, wiping a marker set moments earlier.
+async function syncProtection(){ try{ await loadProtList(); for(const a of AGENTS){ await loadProtAgent(a); } }catch(e){} }
+setInterval(syncProtection, 10000);
+
 loadFleet();
 advInit();
 loadPlane();
